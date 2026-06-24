@@ -61,5 +61,12 @@ SocksServerConnect(asio::any_io_executor ex,
                    const std::string &target_host,
                    uint16_t target_port);
 
+asio::awaitable<std::optional<asio::use_awaitable_t<>::as_default_on_t<asio::ip::tcp::socket>>>
+SocksServerAssociate(asio::any_io_executor ex,
+                     const std::string &socks_host,
+                     uint16_t socks_port,
+                     asio::ip::address &udp_address,
+                     uint16_t &udp_port);
+
 } // namespace caboti
 #endif

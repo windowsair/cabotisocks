@@ -11,6 +11,14 @@
 #include <optional>
 
 namespace caboti {
+// host order
+struct Ipv4Endpoint {
+  uint32_t addr;
+  uint32_t port;
+
+  auto operator<=>(const Ipv4Endpoint &) const = default;
+};
+
 struct OriginalDestInfo {
   uint32_t ip;
   uint32_t tgid;
@@ -40,9 +48,12 @@ public:
 
 public:
   int Init();
+  // TCP
   std::optional<OriginalDestInfo> GetOriginalDest(uint16_t src_port);
   int AddConnect(int app_fd, int up_fd);
   int DelConnect(int app_fd, int up_fd);
+  // UDP
+  auto GetUdpOriginalDest(const Ipv4Endpoint &src) -> std::optional<Ipv4Endpoint>;
 
 private:
   using AppFd = int;

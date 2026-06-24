@@ -360,4 +360,14 @@ auto CabotiSocks::DelConnect(int app_fd, int up_fd) -> int
 
   return 0;
 }
+
+auto CabotiSocks::GetUdpOriginalDest(const Ipv4Endpoint &src) -> std::optional<Ipv4Endpoint>
+{
+  // TODO: implement this
+  (void)src;
+  Ipv4Endpoint ret = {.addr = 0x08080808, .port = 53};
+
+  return ret;
+}
+
 } // namespace caboti
