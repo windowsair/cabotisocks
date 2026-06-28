@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <list>
 #include <map>
 #include <netinet/in.h>
 #include <optional>
@@ -88,7 +89,7 @@ public:
   auto GetUdpConnection(const Ipv4ConnectionTuple &tuple) -> asio::awaitable<Ipv4ConnectionInfo *>;
 
 private:
-  auto AddSocksConnection(const Ipv4ConnectionTuple &tuple)
+  auto AddSocksConnection(void)
       -> asio::awaitable<std::optional<Ipv4TunnelManager>>;
   auto RemoveSocksConnection(Ipv4TunnelManager *manager) -> void;
   auto SocksServerDataRecv(asio::any_io_executor executor, Ipv4TunnelManager *manager) -> void;
@@ -99,10 +100,10 @@ private:
   std::string socks_host_;
   uint16_t socks_port_;
   std::map<Ipv4ConnectionTuple, Ipv4ConnectionInfo *> connect_map_;
-  std::map<RelayEndpoint, Ipv4TunnelManager> tunnel_map_;
+  std::map<RelayEndpoint, std::list<Ipv4TunnelManager>> tunnel_map_;
 };
 
-auto UdpSession::AddSocksConnection(const Ipv4ConnectionTuple &tuple)
+auto UdpSession::AddSocksConnection(void)
     -> asio::awaitable<std::optional<Ipv4TunnelManager>>
 {
   auto executor = co_await asio::this_coro::executor;
@@ -141,10 +142,21 @@ auto UdpSession::RemoveSocksConnection(Ipv4TunnelManager *manager) -> void
     }
   }
 
-  for (auto it = tunnel_map_.begin(); it != tunnel_map_.end(); ++it) {
-    if (&it->second == manager) {
-      tunnel_map_.erase(it);
-      break;
+  for (auto it = tunnel_map_.begin(); it != tunnel_map_.end();) {
+    // inner list
+    auto &list = it->second;
+    for (auto list_it = list.begin(); list_it != list.end();) {
+      if (&(*list_it) == manager) {
+        list_it = list.erase(list_it);
+      } else {
+        ++list_it;
+      }
+    }
+
+    if (list.empty()) {
+      it = tunnel_map_.erase(it);
+    } else {
+      ++it;
     }
   }
 }
@@ -181,17 +193,23 @@ auto UdpSession::GetUdpConnection(const Ipv4ConnectionTuple &tuple)
 
   // try to insert new connect
   Ipv4ConnectionInfo *ret = nullptr;
-  for (auto &item : tunnel_map_) {
-    auto &tunnel = item.second.tunnel_item_map;
-    if (tunnel.find(tuple.dst) != tunnel.end()) {
-      continue;
-    } else {
-      ret = TunnelItemMapAdd(tuple, &item.second);
+  for (auto &list_pair : tunnel_map_) {
+    auto &tunnel_list = list_pair.second;
+    bool found = false;
+    for (auto &item : tunnel_list) {
+      auto &tunnel = item.tunnel_item_map;
+      if (tunnel.find(tuple.dst) != tunnel.end()) {
+        continue;
+      }
+      ret = TunnelItemMapAdd(tuple, &item);
       if (!ret) {
         co_return nullptr;
-      } else {
-        break;
       }
+      found = true;
+      break;
+    }
+    if (found) {
+      break;
     }
   }
   // find available connect info
@@ -199,7 +217,7 @@ auto UdpSession::GetUdpConnection(const Ipv4ConnectionTuple &tuple)
     co_return ret;
   }
   // not found, then try to add new connection
-  auto res = co_await AddSocksConnection(tuple);
+  auto res = co_await AddSocksConnection();
   if (!res.has_value()) {
     co_return nullptr;
   }
@@ -212,12 +230,7 @@ auto UdpSession::GetUdpConnection(const Ipv4ConnectionTuple &tuple)
   }
   DstEndpoint socks_ep = {.addr = remote_ep.address().to_v4().to_uint(), .port = remote_ep.port()};
 
-  auto [iter_item_map, success] = tunnel_map_.emplace(socks_ep, std::move(new_tunnel));
-  if (!success) {
-    co_return nullptr;
-  }
-
-  auto new_manager = &iter_item_map->second;
+  Ipv4TunnelManager *new_manager = &tunnel_map_[socks_ep].emplace_back(std::move(new_tunnel));
   if (!TunnelItemMapAdd(tuple, new_manager)) {
     RemoveSocksConnection(new_manager);
     co_return nullptr;
@@ -226,7 +239,7 @@ auto UdpSession::GetUdpConnection(const Ipv4ConnectionTuple &tuple)
   auto executor = co_await asio::this_coro::executor;
   SocksServerDataRecv(executor, new_manager);
   // get first item in the map
-  ret = &iter_item_map->second.tunnel_item_map.begin()->second;
+  ret = &new_manager->tunnel_item_map.begin()->second;
   ret->active_time = GetCurrentTimeMs();
   co_return ret;
 }
