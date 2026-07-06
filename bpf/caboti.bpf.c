@@ -2,19 +2,20 @@
 /*
  * Copyright (c) 2026 windowsair <dev@airkyi.com>
  */
-#include <linux/types.h>
-#include <linux/bpf.h>
+#include <vmlinux.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
+#include <bpf/bpf_tracing.h>
 
 #include "caboti.bpf.h"
 
 #define AF_INET				2
 #define SOCK_STREAM			1
+#define SOCK_DGRAM			2
 #define SK_PASS				1
-#define CABOTISOCKS_TCP_REDIR_PORT	1081
 
 int caboti_tgid = 0;
+int caboti_exclude_cgroup_id = 0;
 
 struct {
 	__uint(type, BPF_MAP_TYPE_SOCKMAP);
@@ -44,34 +45,182 @@ struct {
 	__type(value, struct orig_dest_val);
 } v4_connect SEC(".maps");
 
-SEC("cgroup/connect4")
-int connect4_redirect(struct bpf_sock_addr *ctx)
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 2048);
+	__type(key, struct orig_ipv4_udp_src);
+	__type(value, struct orig_dest_val);
+	__uint(map_flags, BPF_F_NO_COMMON_LRU);
+} v4_udp_dest SEC(".maps");
+
+SEC("fexit/__ip4_datagram_connect")
+int BPF_PROG(ipv4_datagram_connect, struct sock *sk,
+			 struct sockaddr_unsized *uaddr, int addr_len, int ret)
 {
-	if (ctx->family != AF_INET)
-		return 1;
+	if (sk->__sk_common.skc_family != AF_INET)
+		return 0;
 
-	if (ctx->type != SOCK_STREAM)
-		return 1;
-
-	if ((ctx->user_ip4 & bpf_htonl(0xff000000)) == bpf_htonl(0x7f000000))
-		return 1;
+	/* Invalid connect */
+	if (sk->__sk_common.skc_dport == 0)
+		return 0;
 
 	__u32 tgid = bpf_get_current_pid_tgid() >> 32;
 	if (tgid == caboti_tgid)
-		return 1;
+		return 0;
+
+	__u64 cid = bpf_get_current_cgroup_id();
+	if (cid == caboti_exclude_cgroup_id)
+		return 0;
+
+	__u64 cookie = bpf_get_socket_cookie(sk);
+	struct orig_dest_val *val = bpf_map_lookup_elem(&internal_pending_v4_cookie, &cookie);
+	if (!val)
+		return 0;
+
+	struct orig_ipv4_udp_src src_key = {
+		.saddr = sk->__sk_common.skc_rcv_saddr,
+		.sport = sk->__sk_common.skc_num
+	};
+
+	bpf_map_update_elem(&v4_udp_dest, &src_key, val, BPF_ANY);
+	bpf_map_delete_elem(&internal_pending_v4_cookie, &cookie);
+
+	return 0;
+}
+
+SEC("cgroup/sendmsg4")
+int sendmsg4_redirect(struct bpf_sock_addr *ctx)
+{
+	if (ctx->family != AF_INET)
+		return SK_PASS;
+
+	/* For now, skip DNS */
+	if (ctx->user_port == 0x3500)
+		return SK_PASS;
+
+	__u32 tgid = bpf_get_current_pid_tgid() >> 32;
+	if (tgid == caboti_tgid)
+		return SK_PASS;
+
+	__u64 cid = bpf_get_current_cgroup_id();
+	if (cid == caboti_exclude_cgroup_id)
+		return SK_PASS;
+
+	struct bpf_sock *sk = ctx->sk;
+	__u32 saddr = sk->src_ip4;
+
+	if ((ctx->user_ip4 & bpf_htonl(0xff000000)) == bpf_htonl(0x7f000000))
+		return SK_PASS;
+
+	/*
+	 * When the source address is set to 0.0.0.0 (INADDR_ANY),
+	 * traffic destined for the is routed through the loopback interface,
+	 * causing userspace applications to observe packets with 127.0.0.1
+	 * as the source address rather than 0.0.0.0.
+	 */
+	if (saddr == 0)
+		saddr = bpf_htonl(0x7f000001);
+
+	struct orig_ipv4_udp_src src_key = {
+		.saddr = saddr,
+		.sport = sk->src_port,
+	};
 
 	struct orig_dest_val val = {
 		.daddr = ctx->user_ip4,
 		.dport = (__u16)ctx->user_port,
-		.tgid   = tgid,
+		.tgid = tgid,
 	};
+
+	if (bpf_map_update_elem(&v4_udp_dest, &src_key, &val, BPF_ANY))
+		return SK_PASS;
+
+	ctx->user_ip4 = bpf_htonl(0x7f000001);
+	ctx->user_port = bpf_htons(CABOTISOCKS_UDP_REDIR_PORT);
+
+	return SK_PASS;
+}
+
+SEC("cgroup/recvmsg4")
+int recvmsg4_redirect(struct bpf_sock_addr *ctx)
+{
+	if (ctx->family != AF_INET)
+		return SK_PASS;
+
+	__u32 tgid = bpf_get_current_pid_tgid() >> 32;
+	if (tgid == caboti_tgid)
+		return SK_PASS;
+
+	__u64 cid = bpf_get_current_cgroup_id();
+	if (cid == caboti_exclude_cgroup_id)
+		return SK_PASS;
+
+	struct bpf_sock *sk = ctx->sk;
+	__u32 saddr = sk->src_ip4;
+	if (saddr == 0)
+		saddr = bpf_htonl(0x7f000001);
+
+	struct orig_ipv4_udp_src src_key = {
+		.saddr = saddr,
+		.sport = sk->src_port,
+	};
+
+	/*
+	 * When the source address is set to 0.0.0.0 (INADDR_ANY),
+	 * traffic destined for the is routed through the loopback interface,
+	 * causing userspace applications to observe packets with 127.0.0.1
+	 * as the source address rather than 0.0.0.0.
+	 */
+	struct orig_dest_val *val = bpf_map_lookup_elem(&v4_udp_dest, &src_key);
+	if (!val)
+		return SK_PASS;
+
+	ctx->user_ip4 = val->daddr;
+	ctx->user_port = val->dport;
+
+	return SK_PASS;
+}
+
+SEC("cgroup/connect4")
+int connect4_redirect(struct bpf_sock_addr *ctx)
+{
+	if (ctx->user_port == 0x3500)
+		return SK_PASS;
+
+	if (ctx->family != AF_INET)
+		return SK_PASS;
+
+	/* TODO: config bypass UDP */
+	if (ctx->type != SOCK_STREAM && ctx->type != SOCK_DGRAM)
+		return SK_PASS;
+
+	if ((ctx->user_ip4 & bpf_htonl(0xff000000)) == bpf_htonl(0x7f000000))
+		return SK_PASS;
+
+	__u32 tgid = bpf_get_current_pid_tgid() >> 32;
+	if (tgid == caboti_tgid)
+		return SK_PASS;
+
+	__u64 cid = bpf_get_current_cgroup_id();
+	if (cid == caboti_exclude_cgroup_id)
+		return SK_PASS;
+
+	struct orig_dest_val val = {
+		.daddr = ctx->user_ip4,
+		.dport = (__u16)ctx->user_port,
+		.tgid = tgid,
+	};
+
 	__u64 cookie = bpf_get_socket_cookie(ctx);
 	bpf_map_update_elem(&internal_pending_v4_cookie, &cookie, &val, BPF_ANY);
 
-	ctx->user_ip4  = bpf_htonl(0x7f000001);
-	ctx->user_port = bpf_htons(CABOTISOCKS_TCP_REDIR_PORT);
+	ctx->user_ip4 = bpf_htonl(0x7f000001);
+	if (ctx->type == SOCK_STREAM)
+		ctx->user_port = bpf_htons(CABOTISOCKS_TCP_REDIR_PORT);
+	else if (ctx->type == SOCK_DGRAM)
+		ctx->user_port = bpf_htons(CABOTISOCKS_UDP_REDIR_PORT);
 
-	return 1;
+	return SK_PASS;
 }
 
 SEC("sockops")
@@ -105,7 +254,7 @@ int _stream_parser(struct __sk_buff *skb)
 SEC("sk_skb/verdict")
 int verdict(struct __sk_buff *skb)
 {
-	__u64 cookie    = bpf_get_socket_cookie(skb);
+	__u64 cookie = bpf_get_socket_cookie(skb);
 	__u32 *peer_key = bpf_map_lookup_elem(&peer_map, &cookie);
 
 	if (!peer_key)

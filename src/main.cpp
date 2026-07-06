@@ -9,11 +9,12 @@
 #include "cabotisocks.hpp"
 #include "udp_relay.hpp"
 #include "tcp_relay.hpp"
+#include "bpf/caboti.bpf.h"
 
 int main()
 {
-  constexpr uint16_t listen_port = 1081;
-  constexpr uint16_t udp_listen_port = 5353;
+  constexpr uint16_t listen_port = CABOTISOCKS_TCP_REDIR_PORT;
+  constexpr uint16_t udp_listen_port = CABOTISOCKS_UDP_REDIR_PORT;
   const std::string socks_host = "127.0.0.1";
   constexpr uint16_t socks_port = 10808;
   std::cout << "Cabotisocks started\n";
