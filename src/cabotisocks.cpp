@@ -2,8 +2,10 @@
 /*
  * Copyright (c) 2026 windowsair <dev@airkyi.com>
  */
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <netinet/in.h>
@@ -15,6 +17,7 @@
 #include "bpf/caboti.bpf.h"
 #include "caboti.skel.h"
 #include "cabotisocks.hpp"
+#include "rule.hpp"
 #include "nonstd/scope.hpp"
 
 namespace caboti {
@@ -111,6 +114,8 @@ struct CabotiSocks::CabotiBpfImpl {
   int peermap_fd;
   int v4_connect_fd;
   int v4_udp_dest_fd;
+  int ipv4_lpm_array_fd;
+  int rules_array_fd;
   // program
   int parser_fd;
   int verdict_fd;
@@ -119,6 +124,7 @@ struct CabotiSocks::CabotiBpfImpl {
   struct bpf_link *recvmsg4_link;
   struct bpf_link *connect_v4_link;
   struct bpf_link *socksop_link;
+  std::vector<int> lpm_fd_list;
 
   CabotiBpfImpl()
       : ctx(nullptr)
@@ -126,6 +132,8 @@ struct CabotiSocks::CabotiBpfImpl {
       , peermap_fd(-1)
       , v4_connect_fd(-1)
       , v4_udp_dest_fd(-1)
+      , ipv4_lpm_array_fd(-1)
+      , rules_array_fd(-1)
       , parser_fd(-1)
       , verdict_fd(-1)
       , ipv4_datagram_connect_link(nullptr)
@@ -141,11 +149,11 @@ struct CabotiSocks::CabotiBpfImpl {
     Destroy();
   }
 
-  int Init();
+  int Init(const std::vector<CabotiSocksRule> &rules);
   void Destroy();
 };
 
-auto CabotiSocks::CabotiBpfImpl::Init() -> int
+auto CabotiSocks::CabotiBpfImpl::Init(const std::vector<CabotiSocksRule> &rules) -> int
 {
   auto perror = [&](auto &arg) {
     std::cerr << arg << std::endl;
@@ -180,10 +188,74 @@ auto CabotiSocks::CabotiBpfImpl::Init() -> int
   peermap_fd = bpf_map__fd(ctx->maps.peer_map);
   v4_connect_fd = bpf_map__fd(ctx->maps.v4_connect);
   v4_udp_dest_fd = bpf_map__fd(ctx->maps.v4_udp_dest);
+  ipv4_lpm_array_fd = bpf_map__fd(ctx->maps.ipv4_lpm_array);
+  rules_array_fd = bpf_map__fd(ctx->maps.rules_array);
   if (sockmap_fd == -EINVAL || peermap_fd == -EINVAL || v4_connect_fd == -EINVAL ||
-      v4_udp_dest_fd == -EINVAL) {
+      v4_udp_dest_fd == -EINVAL || ipv4_lpm_array_fd == -EINVAL || rules_array_fd == -EINVAL) {
     perror("Failed to load BPF fd");
     return -1;
+  }
+
+  struct bpf_map_create_opts opts;
+  memset(&opts, 0, sizeof(struct bpf_map_create_opts));
+  opts.sz = sizeof(struct bpf_map_create_opts);
+  opts.map_flags = BPF_F_NO_PREALLOC;
+
+  int lpm_index = 0;
+  int rule_index = 0;
+  auto step_add_rules = make_scope_exit([&] {
+    for (auto fd : lpm_fd_list) {
+      close(fd);
+    }
+    lpm_fd_list.clear();
+  });
+  for (auto &rule : rules) {
+    uint32_t ip_index = UINT32_MAX;
+    if (!rule.ip.empty()) {
+      int fd = bpf_map_create(BPF_MAP_TYPE_LPM_TRIE,
+                              NULL,
+                              sizeof(struct ipv4_lpm_key),
+                              sizeof(__u32),
+                              rule.ip.size(),
+                              &opts);
+      if (fd < 0) {
+        perror("Failed to create LPM map");
+        return -1;
+      }
+      lpm_fd_list.push_back(fd);
+      int ret = bpf_map_update_elem(ipv4_lpm_array_fd, &lpm_index, &fd, BPF_ANY);
+      if (ret < 0) {
+        perror("Failed to update LPM map array");
+        return -1;
+      }
+      ip_index = lpm_index++;
+      for (auto &lpm_key : rule.ip) {
+        __u32 val = 1;
+        ret = bpf_map_update_elem(fd, &lpm_key, &val, BPF_ANY);
+        if (ret < 0) {
+          perror("Failed to insert LPM entry");
+          return -1;
+        }
+      }
+    }
+    struct cabotisocks_rules bpf_rule = {
+        .index = ip_index,
+        .comm = "",
+        .port = rule.port,
+        .op = static_cast<uint8_t>(rule.op),
+        .pad = 0,
+    };
+
+    std::memset(bpf_rule.comm, 0, sizeof(bpf_rule.comm));
+    auto n = std::min(rule.comm.size(), sizeof(bpf_rule.comm) - 1);
+    memcpy(bpf_rule.comm, rule.comm.data(), n);
+
+    int ret = bpf_map_update_elem(rules_array_fd, &rule_index, &bpf_rule, BPF_ANY);
+    if (ret < 0) {
+      perror("Failed to update rule array");
+      return -1;
+    }
+    rule_index++;
   }
 
   // attach program
@@ -247,10 +319,12 @@ auto CabotiSocks::CabotiBpfImpl::Init() -> int
   }
 
   // all step success
-  step_ctx.release();
-  step_parser_attch.release();
-  step_veridct_attch.release();
   step_ipv4_datagram_connect_link.release();
+  step_veridct_attch.release();
+  step_parser_attch.release();
+  step_add_rules.release();
+  step_ctx.release();
+
   return 0;
 }
 
@@ -276,6 +350,10 @@ auto CabotiSocks::CabotiBpfImpl::Destroy() -> void
     bpf_link__destroy(ipv4_datagram_connect_link);
   }
 
+  for (auto fd : lpm_fd_list) {
+    close(fd);
+  }
+
   if (ctx) {
     // destory will close fd?
     caboti_bpf::destroy(ctx);
@@ -290,9 +368,9 @@ CabotiSocks::CabotiSocks()
 
 CabotiSocks::~CabotiSocks() = default;
 
-auto CabotiSocks::Init() -> int
+auto CabotiSocks::Init(const std::vector<CabotiSocksRule> &rules) -> int
 {
-  return bpf_impl_->Init();
+  return bpf_impl_->Init(rules);
 }
 
 auto CabotiSocks::GetOriginalDest(uint16_t src_port) -> std::optional<OriginalDestInfo>

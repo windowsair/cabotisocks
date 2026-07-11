@@ -9,6 +9,7 @@
 #include <memory>
 #include <map>
 #include <optional>
+#include "rule.hpp"
 
 namespace caboti {
 // host order
@@ -47,7 +48,7 @@ public:
   CabotiSocks &operator=(CabotiSocks &&) noexcept = default;
 
 public:
-  int Init();
+  int Init(const std::vector<CabotiSocksRule> &rules);
   // TCP
   std::optional<OriginalDestInfo> GetOriginalDest(uint16_t src_port);
   int AddConnect(int app_fd, int up_fd);

@@ -6,10 +6,11 @@
 #include <iostream>
 #include <string>
 #include "asio.hpp"
-#include "cabotisocks.hpp"
-#include "udp_relay.hpp"
-#include "tcp_relay.hpp"
 #include "bpf/caboti.bpf.h"
+#include "cabotisocks.hpp"
+#include "rule.hpp"
+#include "tcp_relay.hpp"
+#include "udp_relay.hpp"
 
 int main()
 {
@@ -18,8 +19,11 @@ int main()
   const std::string socks_host = "127.0.0.1";
   constexpr uint16_t socks_port = 10808;
   std::cout << "Cabotisocks started\n";
+
   caboti::CabotiSocks caboti_handle;
-  if (caboti_handle.Init()) {
+  std::vector<caboti::CabotiSocksRule> rules;
+  caboti::UpdateRules(rules);
+  if (caboti_handle.Init(rules)) {
     return -1;
   }
 

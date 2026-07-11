@@ -12,6 +12,7 @@
 #define AF_INET				2
 #define SOCK_STREAM			1
 #define SOCK_DGRAM			2
+#define SK_DROP				0
 #define SK_PASS				1
 
 int caboti_tgid = 0;
@@ -52,6 +53,96 @@ struct {
 	__type(value, struct orig_dest_val);
 	__uint(map_flags, BPF_F_NO_COMMON_LRU);
 } v4_udp_dest SEC(".maps");
+
+struct ipv4_lpm_map {
+	__uint(type, BPF_MAP_TYPE_LPM_TRIE);
+	__type(key, struct ipv4_lpm_key);
+	__type(value, __u32); /* dummy? */
+	__uint(map_flags, BPF_F_NO_PREALLOC);
+	__uint(max_entries, 4096);
+} _ipv4_lpm_map SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY_OF_MAPS);
+	__uint(max_entries, CABOTISOCKS_RULES_MAX_ENTRY);
+	__type(key, __u32);
+	__array(values, struct ipv4_lpm_map);
+} ipv4_lpm_array SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__type(key, __u32);
+	__type(value, struct cabotisocks_rules);
+	__uint(max_entries, CABOTISOCKS_RULES_MAX_ENTRY);
+} rules_array SEC(".maps");
+
+static __always_inline bool starts_with(const char comm[16],
+					const char prefix[16])
+{
+#pragma unroll
+	for (int i = 0; i < 16; i++) {
+		if (prefix[i] == '\0')
+			return true;
+
+		if (comm[i] != prefix[i])
+			return false;
+
+		if (comm[i] == '\0')
+			return false;
+	}
+
+	return true;
+}
+
+struct rule_check_ctx {
+	struct bpf_sock_addr *ctx;
+	int result;
+};
+
+static long rule_check_cb(struct bpf_map *map, const void *key,
+			  void *value, void *data)
+{
+	struct cabotisocks_rules *rule = value;
+	struct rule_check_ctx *cb = data;
+	struct bpf_sock_addr *ctx = cb->ctx;
+	char comm[16];
+
+	if (rule->port != 0 && rule->port != ctx->user_port)
+		return 0;
+
+	if (rule->comm[0] != '\0' && !bpf_get_current_comm(comm, sizeof(comm))) {
+		if (!starts_with(comm, rule->comm))
+			return 0;
+	}
+
+	if (rule->index != CABOTISOCKS_INVALID_INDEX) {
+		struct ipv4_lpm_map *lpm_map_v4 =
+			bpf_map_lookup_elem(&ipv4_lpm_array, &rule->index);
+		if (!lpm_map_v4)
+			return 0;
+
+		struct ipv4_lpm_key lpm_key = {
+			.prefix_len = 32,
+			.data = ctx->user_ip4,
+		};
+		if (!bpf_map_lookup_elem(lpm_map_v4, &lpm_key))
+			return 0;
+	}
+
+	cb->result = rule->op;
+	return 1;
+}
+
+static int rule_check(struct bpf_sock_addr *ctx)
+{
+	struct rule_check_ctx cb = {
+		.ctx = ctx,
+		.result = CABOTISOCKS_PROXY,
+	};
+
+	bpf_for_each_map_elem(&rules_array, rule_check_cb, &cb, 0);
+	return cb.result;
+}
 
 SEC("fexit/__ip4_datagram_connect")
 int BPF_PROG(ipv4_datagram_connect, struct sock *sk,
@@ -94,10 +185,6 @@ int sendmsg4_redirect(struct bpf_sock_addr *ctx)
 	if (ctx->family != AF_INET)
 		return SK_PASS;
 
-	/* For now, skip DNS */
-	if (ctx->user_port == 0x3500)
-		return SK_PASS;
-
 	__u32 tgid = bpf_get_current_pid_tgid() >> 32;
 	if (tgid == caboti_tgid)
 		return SK_PASS;
@@ -106,11 +193,14 @@ int sendmsg4_redirect(struct bpf_sock_addr *ctx)
 	if (cid == caboti_exclude_cgroup_id)
 		return SK_PASS;
 
+	int op = rule_check(ctx);
+	if (op == CABOTISOCKS_DIRECT)
+		return SK_PASS;
+	else if (op == CABOTISOCKS_BLOCK)
+		return SK_DROP;
+
 	struct bpf_sock *sk = ctx->sk;
 	__u32 saddr = sk->src_ip4;
-
-	if ((ctx->user_ip4 & bpf_htonl(0xff000000)) == bpf_htonl(0x7f000000))
-		return SK_PASS;
 
 	/*
 	 * When the source address is set to 0.0.0.0 (INADDR_ANY),
@@ -184,17 +274,11 @@ int recvmsg4_redirect(struct bpf_sock_addr *ctx)
 SEC("cgroup/connect4")
 int connect4_redirect(struct bpf_sock_addr *ctx)
 {
-	if (ctx->user_port == 0x3500)
-		return SK_PASS;
-
 	if (ctx->family != AF_INET)
 		return SK_PASS;
 
 	/* TODO: config bypass UDP */
 	if (ctx->type != SOCK_STREAM && ctx->type != SOCK_DGRAM)
-		return SK_PASS;
-
-	if ((ctx->user_ip4 & bpf_htonl(0xff000000)) == bpf_htonl(0x7f000000))
 		return SK_PASS;
 
 	__u32 tgid = bpf_get_current_pid_tgid() >> 32;
@@ -204,6 +288,14 @@ int connect4_redirect(struct bpf_sock_addr *ctx)
 	__u64 cid = bpf_get_current_cgroup_id();
 	if (cid == caboti_exclude_cgroup_id)
 		return SK_PASS;
+
+	int op = rule_check(ctx);
+	if (op == CABOTISOCKS_DIRECT)
+		return SK_PASS;
+	else if (op == CABOTISOCKS_BLOCK)
+		return SK_DROP;
+
+	/* Then start to proxy */
 
 	struct orig_dest_val val = {
 		.daddr = ctx->user_ip4,

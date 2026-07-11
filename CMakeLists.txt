@@ -83,7 +83,8 @@ add_executable(cabotisocks
   src/main.cpp
   src/socks.cpp
   src/tcp_relay.cpp
-  src/udp_relay.cpp)
+  src/udp_relay.cpp
+  src/rule.cpp)
 target_include_directories(cabotisocks PRIVATE ${PROJECT_SOURCE_DIR})
 target_compile_options(cabotisocks PRIVATE -Wall -Wextra -Wpedantic -Werror)
 target_link_libraries(cabotisocks caboti_skel asio::asio nonstd::scope-lite)
