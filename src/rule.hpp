@@ -26,8 +26,41 @@ struct CabotiSocksRule {
   CabotiSocksRule() = default;
 };
 
-auto UpdateRules(std::vector<CabotiSocksRule> &rules) -> void;
+class CabotiSocksConfig {
+public:
+  CabotiSocksConfig() = default;
 
+  auto IsUdpEnabled() const -> bool
+  {
+    return enable_udp_;
+  }
+
+  auto GetRules() const -> const std::vector<CabotiSocksRule> &
+  {
+    return rules_;
+  }
+
+  auto GetIncludeCgPath() const -> const std::string &
+  {
+    return include_cg_path_;
+  }
+
+  auto GetExcludeCgPath() const -> const std::string &
+  {
+    return exclude_cg_path_;
+  }
+
+  auto Init() -> int;
+
+private:
+  auto UpdateRules() -> void;
+
+private:
+  std::string include_cg_path_;
+  std::string exclude_cg_path_;
+  std::vector<CabotiSocksRule> rules_;
+  bool enable_udp_;
+};
 } // namespace caboti
 
 #endif

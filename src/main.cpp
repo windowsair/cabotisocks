@@ -21,9 +21,13 @@ int main()
   std::cout << "Cabotisocks started\n";
 
   caboti::CabotiSocks caboti_handle;
-  std::vector<caboti::CabotiSocksRule> rules;
-  caboti::UpdateRules(rules);
-  if (caboti_handle.Init(rules)) {
+  caboti::CabotiSocksConfig cfg;
+
+  if (cfg.Init()) {
+    return -1;
+  }
+
+  if (caboti_handle.Init(cfg)) {
     return -1;
   }
 

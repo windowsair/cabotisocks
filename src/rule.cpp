@@ -59,7 +59,23 @@ auto StringToLpmKey(const std::string &str) -> struct ipv4_lpm_key {
 
 }
 
-auto UpdateRules(std::vector<CabotiSocksRule> &rules) -> void
+constexpr auto exclude_cg_path = "/sys/fs/cgroup/system.slice/myapp.service";
+constexpr auto cg_path = "/sys/fs/cgroup/cabotisocks";
+//constexpr auto cg_path = "/sys/fs/cgroup/cabotisocks";
+//constexpr auto cg_path = "/sys/fs/cgroup/system.slice";
+
+// TODO: implement
+auto CabotiSocksConfig::Init() -> int
+{
+  enable_udp_ = true;
+  include_cg_path_ = cg_path;
+  exclude_cg_path_ = exclude_cg_path;
+  UpdateRules();
+  return 0;
+}
+
+// TODO: implement
+auto CabotiSocksConfig::UpdateRules() -> void
 {
   CabotiSocksRule rule;
   CabotiSocksRule default_rule;
@@ -94,8 +110,8 @@ auto UpdateRules(std::vector<CabotiSocksRule> &rules) -> void
   rule.op = OutBoundTag::DIRECT;
   default_rule.op = OutBoundTag::PROXY;
 
-  rules.emplace_back(std::move(rule));
-  rules.emplace_back(std::move(default_rule));
+  rules_.emplace_back(std::move(rule));
+  rules_.emplace_back(std::move(default_rule));
 }
 
 } // namespace caboti

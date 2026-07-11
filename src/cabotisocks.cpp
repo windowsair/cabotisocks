@@ -32,11 +32,6 @@ inline uint64_t getSocketCookie(int fd)
   return cookie;
 }
 
-constexpr auto exclude_cg_path = "/sys/fs/cgroup/system.slice/myapp.service";
-constexpr auto cg_path = "/sys/fs/cgroup/cabotisocks";
-//constexpr auto cg_path = "/sys/fs/cgroup/cabotisocks";
-//constexpr auto cg_path = "/sys/fs/cgroup/system.slice";
-
 class cgroup {
 public:
   uint64_t inode; // cgroup id
@@ -149,11 +144,11 @@ struct CabotiSocks::CabotiBpfImpl {
     Destroy();
   }
 
-  int Init(const std::vector<CabotiSocksRule> &rules);
+  int Init(const CabotiSocksConfig &cfg);
   void Destroy();
 };
 
-auto CabotiSocks::CabotiBpfImpl::Init(const std::vector<CabotiSocksRule> &rules) -> int
+auto CabotiSocks::CabotiBpfImpl::Init(const CabotiSocksConfig &cfg) -> int
 {
   auto perror = [&](auto &arg) {
     std::cerr << arg << std::endl;
@@ -176,7 +171,7 @@ auto CabotiSocks::CabotiBpfImpl::Init(const std::vector<CabotiSocksRule> &rules)
 
   // bypass cabotisocks self
   ctx->bss->caboti_tgid = getpid();
-  cgroup exclude_handle{exclude_cg_path};
+  cgroup exclude_handle{cfg.GetExcludeCgPath().c_str()};
   if (exclude_handle.fd < 0) {
     perror("Failed to get exclude id\n");
   } else {
@@ -209,6 +204,7 @@ auto CabotiSocks::CabotiBpfImpl::Init(const std::vector<CabotiSocksRule> &rules)
     }
     lpm_fd_list.clear();
   });
+  auto &rules = cfg.GetRules();
   for (auto &rule : rules) {
     uint32_t ip_index = UINT32_MAX;
     if (!rule.ip.empty()) {
@@ -278,34 +274,48 @@ auto CabotiSocks::CabotiBpfImpl::Init(const std::vector<CabotiSocksRule> &rules)
   });
 
   // UDP
-  ipv4_datagram_connect_link = bpf_program__attach(ctx->progs.ipv4_datagram_connect);
-  if (ipv4_datagram_connect_link == NULL) {
-    perror("BPF attach ipv4 datagram connect failed");
-    return -1;
+  if (cfg.IsUdpEnabled()) {
+    ipv4_datagram_connect_link = bpf_program__attach(ctx->progs.ipv4_datagram_connect);
+    if (ipv4_datagram_connect_link == NULL) {
+      perror("BPF attach ipv4 datagram connect failed");
+      return -1;
+    }
   }
   auto step_ipv4_datagram_connect_link = make_scope_exit([&] {
-    bpf_link__destroy(ipv4_datagram_connect_link);
+    if (cfg.IsUdpEnabled()) {
+      bpf_link__destroy(ipv4_datagram_connect_link);
+    }
   });
 
-  // TODO: set cgroup path
-  if (cg_path) {
-    cgroup cg_handle{cg_path};
+  {
+    cgroup cg_handle{cfg.GetIncludeCgPath().c_str()};
     if (cg_handle.fd < 0) {
       perror("BPF invalid cgroup path");
       return -1;
     }
 
-    sendmsg4_link = bpf_program__attach_cgroup(ctx->progs.sendmsg4_redirect, cg_handle.fd);
-    recvmsg4_link = bpf_program__attach_cgroup(ctx->progs.recvmsg4_redirect, cg_handle.fd);
+    if (cfg.IsUdpEnabled()) {
+      sendmsg4_link = bpf_program__attach_cgroup(ctx->progs.sendmsg4_redirect, cg_handle.fd);
+      recvmsg4_link = bpf_program__attach_cgroup(ctx->progs.recvmsg4_redirect, cg_handle.fd);
+      if (!sendmsg4_link || !recvmsg4_link) {
+        perror("BPF failed to attach cgroup");
+        return -1;
+      }
+    }
+    auto step_attach_group_udp = make_scope_exit([&] {
+      if (cfg.IsUdpEnabled()) {
+        bpf_link__destroy(sendmsg4_link);
+        bpf_link__destroy(recvmsg4_link);
+        sendmsg4_link = nullptr;
+        recvmsg4_link = nullptr;
+      }
+    });
+
     connect_v4_link = bpf_program__attach_cgroup(ctx->progs.connect4_redirect, cg_handle.fd);
     socksop_link = bpf_program__attach_cgroup(ctx->progs.sock_ops_handler, cg_handle.fd);
     auto step_attach_group = make_scope_exit([&] {
-      bpf_link__destroy(sendmsg4_link);
-      bpf_link__destroy(recvmsg4_link);
       bpf_link__destroy(connect_v4_link);
       bpf_link__destroy(socksop_link);
-      sendmsg4_link = nullptr;
-      recvmsg4_link = nullptr;
       connect_v4_link = nullptr;
       socksop_link = nullptr;
     });
@@ -315,6 +325,7 @@ auto CabotiSocks::CabotiBpfImpl::Init(const std::vector<CabotiSocksRule> &rules)
     }
 
     // step success
+    step_attach_group_udp.release();
     step_attach_group.release();
   }
 
@@ -368,9 +379,9 @@ CabotiSocks::CabotiSocks()
 
 CabotiSocks::~CabotiSocks() = default;
 
-auto CabotiSocks::Init(const std::vector<CabotiSocksRule> &rules) -> int
+auto CabotiSocks::Init(const CabotiSocksConfig &cfg) -> int
 {
-  return bpf_impl_->Init(rules);
+  return bpf_impl_->Init(cfg);
 }
 
 auto CabotiSocks::GetOriginalDest(uint16_t src_port) -> std::optional<OriginalDestInfo>

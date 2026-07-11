@@ -48,7 +48,7 @@ public:
   CabotiSocks &operator=(CabotiSocks &&) noexcept = default;
 
 public:
-  int Init(const std::vector<CabotiSocksRule> &rules);
+  int Init(const CabotiSocksConfig &cfg);
   // TCP
   std::optional<OriginalDestInfo> GetOriginalDest(uint16_t src_port);
   int AddConnect(int app_fd, int up_fd);
