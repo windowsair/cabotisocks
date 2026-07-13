@@ -3,6 +3,10 @@
  * Copyright (c) 2026 windowsair <dev@airkyi.com>
  */
 #include <cstdint>
+#include "asio/as_tuple.hpp"
+#include "asio/connect.hpp"
+#include "asio/read.hpp"
+#include "asio/write.hpp"
 #include "fmt/core.h"
 #include "socks.hpp"
 

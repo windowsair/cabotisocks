@@ -8,14 +8,9 @@
 #include <cstdint>
 #include <vector>
 #include <string>
-#include "bpf/caboti.bpf.h"
 
 namespace caboti {
-enum class OutBoundTag : std::uint8_t {
-  DIRECT = CABOTISOCKS_DIRECT,
-  PROXY = CABOTISOCKS_PROXY,
-  BLOCK = CABOTISOCKS_BLOCK,
-};
+enum class OutBoundTag : std::uint8_t;
 
 struct CabotiSocksRule {
   std::string comm;

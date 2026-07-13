@@ -11,7 +11,11 @@
 #include <netinet/in.h>
 #include <optional>
 #include <system_error>
-#include "asio.hpp"
+#include "asio/as_tuple.hpp"
+#include "asio/co_spawn.hpp"
+#include "asio/detached.hpp"
+#include "asio/ip/tcp.hpp"
+#include "asio/ip/udp.hpp"
 #include "fmt/core.h"
 #include "udp_relay.hpp"
 #include "socks.hpp"

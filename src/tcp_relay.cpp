@@ -4,10 +4,11 @@
  */
 #include <cstdint>
 #include <optional>
-#include "asio.hpp"
 #include "asio/as_tuple.hpp"
 #include "asio/awaitable.hpp"
+#include "asio/detached.hpp"
 #include "asio/experimental/awaitable_operators.hpp"
+#include "asio/write.hpp"
 #include "fmt/core.h"
 #include "cabotisocks.hpp"
 #include "socks.hpp"

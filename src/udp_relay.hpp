@@ -7,6 +7,7 @@
 
 #include "asio/awaitable.hpp"
 #include "cabotisocks.hpp"
+#include "rule.hpp"
 
 namespace caboti {
 asio::awaitable<void> udp_listener(CabotiSocks &ctx,

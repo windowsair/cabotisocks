@@ -8,8 +8,10 @@
 #include <cstdint>
 #include <optional>
 #include <type_traits>
-#include "asio.hpp"
 #include "asio/awaitable.hpp"
+#include "asio/use_awaitable.hpp"
+#include "asio/ip/tcp.hpp"
+#include "rule.hpp"
 
 namespace caboti {
 template<typename E>

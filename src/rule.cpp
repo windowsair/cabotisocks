@@ -2,13 +2,23 @@
 /*
  * Copyright (c) 2026 windowsair <dev@airkyi.com>
  */
+#include <charconv>
+#include <fstream>
 #include <string>
 #include <string_view>
-#include "asio.hpp"
+#include "asio/error_code.hpp"
+#include "asio/ip/address.hpp"
 #include "fmt/core.h"
+#include "bpf/caboti.bpf.h"
 #include "rule.hpp"
 
 namespace caboti {
+enum class OutBoundTag : std::uint8_t {
+  DIRECT = CABOTISOCKS_DIRECT,
+  PROXY = CABOTISOCKS_PROXY,
+  BLOCK = CABOTISOCKS_BLOCK,
+};
+
 auto StringToLpmKey(const std::string &str) -> struct ipv4_lpm_key {
   std::string_view s{str};
   std::string ip_str;
