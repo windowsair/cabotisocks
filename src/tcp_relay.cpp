@@ -55,8 +55,7 @@ auto relay(tcp_socket &src, tcp_socket &dst) -> asio::awaitable<void>
 
 auto tcp_session(CabotiSocks &ctx,
                  tcp_socket local,
-                 const std::string &socks_host,
-                 uint16_t socks_port) -> asio::awaitable<void>
+                 const SocksServerConfig &cfg) -> asio::awaitable<void>
 {
   using namespace asio::experimental::awaitable_operators;
 
@@ -75,7 +74,7 @@ auto tcp_session(CabotiSocks &ctx,
   // connect to remote socks server
   auto ex = co_await asio::this_coro::executor;
   auto connect_res =
-      co_await SocksServerConnect(ex, socks_host, socks_port, target_addr, target_port);
+      co_await SocksServerConnect(ex, cfg, target_addr, target_port);
   if (!connect_res.has_value()) {
     fmt::println(stderr, "SOCKS5 connect failed");
     local.close();
@@ -106,8 +105,7 @@ auto tcp_session(CabotiSocks &ctx,
 
 auto tcp_listener(CabotiSocks &ctx,
                   uint16_t listen_port,
-                  const std::string &socks_host,
-                  uint16_t socks_port) -> asio::awaitable<void>
+                  const SocksServerConfig &cfg) -> asio::awaitable<void>
 {
   auto executor = co_await asio::this_coro::executor;
   tcp_acceptor acceptor(executor, {tcp::v4(), listen_port});
@@ -122,7 +120,7 @@ auto tcp_listener(CabotiSocks &ctx,
     }
 
     asio::co_spawn(executor,
-                   tcp_session(ctx, std::move(socket), socks_host, socks_port),
+                   tcp_session(ctx, std::move(socket), cfg),
                    asio::detached);
   }
 }

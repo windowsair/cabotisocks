@@ -81,12 +81,10 @@ class UdpSession {
 public:
   explicit UdpSession(CabotiSocks &ctx,
                       asio::ip::udp::socket &socket,
-                      const std::string &socks_host,
-                      uint16_t socks_port)
+                      const SocksServerConfig &cfg)
       : ctx_(ctx)
       , udp_socket_(socket)
-      , socks_host_(socks_host)
-      , socks_port_(socks_port)
+      , cfg_(cfg)
   {
   }
 
@@ -101,8 +99,7 @@ private:
 private:
   CabotiSocks &ctx_;
   asio::ip::udp::socket &udp_socket_;
-  std::string socks_host_;
-  uint16_t socks_port_;
+  SocksServerConfig cfg_;
   std::map<Ipv4ConnectionTuple, Ipv4ConnectionInfo *> connect_map_;
   std::map<RelayEndpoint, std::list<Ipv4TunnelManager>> tunnel_map_;
 };
@@ -115,7 +112,7 @@ auto UdpSession::AddSocksConnection(void)
   uint16_t udp_port;
 
   auto res =
-      co_await SocksServerAssociate(executor, socks_host_, socks_port_, udp_address, udp_port);
+      co_await SocksServerAssociate(executor, cfg_, udp_address, udp_port);
   if (!res.has_value()) {
     co_return std::nullopt;
   }
@@ -315,13 +312,12 @@ auto UdpSession::SocksServerDataRecv(asio::any_io_executor executor, Ipv4TunnelM
 
 auto udp_listener(CabotiSocks &ctx,
                   uint16_t listen_port,
-                  const std::string &socks_host,
-                  uint16_t socks_port) -> asio::awaitable<void>
+                  const SocksServerConfig &cfg) -> asio::awaitable<void>
 {
   auto executor = co_await asio::this_coro::executor;
 
   asio::ip::udp::socket udp_server(executor, {asio::ip::udp::v4(), listen_port});
-  UdpSession udp_session{ctx, udp_server, socks_host, socks_port};
+  UdpSession udp_session{ctx, udp_server, cfg};
 
   std::array<uint8_t, UDP_RECV_BUFFER_SIZE> buf;
   asio::ip::udp::endpoint endpoint;

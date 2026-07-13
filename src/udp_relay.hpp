@@ -10,10 +10,8 @@
 #include "rule.hpp"
 
 namespace caboti {
-asio::awaitable<void> udp_listener(CabotiSocks &ctx,
-                                   uint16_t listen_port,
-                                   const std::string &socks_host,
-                                   uint16_t socks_port);
+auto udp_listener(CabotiSocks &ctx, uint16_t listen_port, const SocksServerConfig &cfg)
+    -> asio::awaitable<void>;
 }; // namespace caboti
 
 #endif

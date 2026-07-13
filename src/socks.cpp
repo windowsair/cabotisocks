@@ -16,15 +16,14 @@ using tcp_acceptor = asio::use_awaitable_t<>::as_default_on_t<tcp::acceptor>;
 using tcp_socket = asio::use_awaitable_t<>::as_default_on_t<tcp::socket>;
 
 auto SocksServerConnect(asio::any_io_executor ex,
-                        const std::string &socks_host,
-                        uint16_t socks_port,
+                        const SocksServerConfig &cfg,
                         const std::string &target_host,
                         uint16_t target_port) -> asio::awaitable<std::optional<tcp_socket>>
 {
   tcp::resolver resolver(ex);
 
-  auto [ec, eps] = co_await resolver.async_resolve(socks_host,
-                                                   std::to_string(socks_port),
+  auto [ec, eps] = co_await resolver.async_resolve(cfg.host,
+                                                   std::to_string(cfg.port),
                                                    asio::as_tuple(asio::use_awaitable));
   if (ec) {
     co_return std::nullopt;
@@ -127,15 +126,14 @@ auto SocksServerConnect(asio::any_io_executor ex,
 }
 
 auto SocksServerAssociate(asio::any_io_executor ex,
-                          const std::string &socks_host,
-                          uint16_t socks_port,
+                          const SocksServerConfig &cfg,
                           asio::ip::address &udp_address,
                           uint16_t &udp_port) -> asio::awaitable<std::optional<tcp_socket>>
 {
   tcp::resolver resolver(ex);
 
-  auto [ec, eps] = co_await resolver.async_resolve(socks_host,
-                                                   std::to_string(socks_port),
+  auto [ec, eps] = co_await resolver.async_resolve(cfg.host,
+                                                   std::to_string(cfg.port),
                                                    asio::as_tuple(asio::use_awaitable));
   if (ec) {
     co_return std::nullopt;

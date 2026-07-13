@@ -12,6 +12,13 @@
 namespace caboti {
 enum class OutBoundTag : std::uint8_t;
 
+struct SocksServerConfig {
+  std::string username;
+  std::string password;
+  std::string host;
+  uint16_t port;
+};
+
 struct CabotiSocksRule {
   std::string comm;
   std::vector<struct ipv4_lpm_key> ip;

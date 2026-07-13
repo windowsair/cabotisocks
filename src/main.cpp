@@ -15,12 +15,15 @@
 #include "tcp_relay.hpp"
 #include "udp_relay.hpp"
 
-int main()
+auto main() -> int
 {
   constexpr uint16_t listen_port = CABOTISOCKS_TCP_REDIR_PORT;
   constexpr uint16_t udp_listen_port = CABOTISOCKS_UDP_REDIR_PORT;
   const std::string socks_host = "127.0.0.1";
   constexpr uint16_t socks_port = 10808;
+  caboti::SocksServerConfig server_cfg{};
+  server_cfg.host = socks_host;
+  server_cfg.port = socks_port;
   fmt::println("Cabotisocks started");
 
   caboti::CabotiSocks caboti_handle;
@@ -44,11 +47,11 @@ int main()
     });
 
     co_spawn(io_context,
-             caboti::tcp_listener(caboti_handle, listen_port, socks_host, socks_port),
+             caboti::tcp_listener(caboti_handle, listen_port, server_cfg),
              asio::detached);
 
     co_spawn(io_context,
-             caboti::udp_listener(caboti_handle, udp_listen_port, socks_host, socks_port),
+             caboti::udp_listener(caboti_handle, udp_listen_port, server_cfg),
              asio::detached);
 
     io_context.run();
