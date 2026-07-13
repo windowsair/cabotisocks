@@ -19,6 +19,12 @@ CPMAddPackage(
   GIT_REPOSITORY "https://github.com/OlivierLDff/asio.cmake"
   GIT_TAG "main"
 )
+# fmt support
+CPMAddPackage(
+  NAME fmt
+  GIT_REPOSITORY "https://github.com/fmtlib/fmt"
+  GIT_TAG "12.2.0"
+)
 # scope-exit support
 CPMAddPackage(
   NAME scope-lite
@@ -87,4 +93,4 @@ add_executable(cabotisocks
   src/rule.cpp)
 target_include_directories(cabotisocks PRIVATE ${PROJECT_SOURCE_DIR})
 target_compile_options(cabotisocks PRIVATE -Wall -Wextra -Wpedantic -Werror)
-target_link_libraries(cabotisocks caboti_skel asio::asio nonstd::scope-lite)
+target_link_libraries(cabotisocks caboti_skel asio::asio nonstd::scope-lite fmt::fmt)

@@ -3,9 +3,9 @@
  * Copyright (c) 2026 windowsair <dev@airkyi.com>
  */
 #include <cstdint>
-#include <iostream>
 #include <string>
 #include "asio.hpp"
+#include "fmt/core.h"
 #include "bpf/caboti.bpf.h"
 #include "cabotisocks.hpp"
 #include "rule.hpp"
@@ -18,7 +18,7 @@ int main()
   constexpr uint16_t udp_listen_port = CABOTISOCKS_UDP_REDIR_PORT;
   const std::string socks_host = "127.0.0.1";
   constexpr uint16_t socks_port = 10808;
-  std::cout << "Cabotisocks started\n";
+  fmt::println("Cabotisocks started");
 
   caboti::CabotiSocks caboti_handle;
   caboti::CabotiSocksConfig cfg;
@@ -36,7 +36,7 @@ int main()
 
     asio::signal_set signals(io_context, SIGINT, SIGTERM);
     signals.async_wait([&](auto, auto) {
-      std::cout << "Shutting down..." << std::endl;
+      fmt::println("Shutting down...");
       io_context.stop();
     });
 
@@ -50,7 +50,7 @@ int main()
 
     io_context.run();
   } catch (std::exception &e) {
-    std::cerr << "Exception:" << e.what() << std::endl;
+    fmt::println(stderr, "Exception: {}", e.what());
   }
 
   return 0;

@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <memory>
 #include <netinet/in.h>
 #include <optional>
@@ -16,6 +15,7 @@
 #include "bpf/libbpf.h"
 #include "bpf/caboti.bpf.h"
 #include "caboti.skel.h"
+#include "fmt/core.h"
 #include "cabotisocks.hpp"
 #include "rule.hpp"
 #include "nonstd/scope.hpp"
@@ -42,18 +42,18 @@ public:
       , fd(-1)
   {
     if (mkdir(path, 0755) < 0 && errno != EEXIST) {
-      std::cerr << "mkdir cgroup\n";
+      fmt::println(stderr, "Failed to mkdir cgroup");
       return;
     }
 
     fd = open(path, O_RDONLY | O_DIRECTORY);
     if (fd < 0) {
-      std::cerr << "open cgroup (is cgroup v2 at /sys/fs/cgroup?)\n";
+      fmt::println(stderr, "Failed to open cgroup (is cgroup v2 at /sys/fs/cgroup?)");
     }
 
     struct stat st;
     if (stat(path, &st) < 0) {
-      std::cerr << "Failed to get cgroup inode\n";
+      fmt::println(stderr, "Failed to get cgroup inode");
       return;
     }
     inode = st.st_ino;
@@ -151,7 +151,7 @@ struct CabotiSocks::CabotiBpfImpl {
 auto CabotiSocks::CabotiBpfImpl::Init(const CabotiSocksConfig &cfg) -> int
 {
   auto perror = [&](auto &arg) {
-    std::cerr << arg << std::endl;
+    fmt::println(stderr, "{}", arg);
   };
 
   if (getuid() != 0) {
@@ -392,7 +392,7 @@ auto CabotiSocks::GetOriginalDest(uint16_t src_port) -> std::optional<OriginalDe
 
   int ret = bpf_map_lookup_and_delete_elem(bpf_impl_->v4_connect_fd, &key, &val);
   if (ret < 0) {
-    std::cerr << "Failed to lookup original destination for port: " << key << "\n";
+    fmt::println(stderr, "Failed to lookup original destination for port: {}", key);
     return std::nullopt;
   }
 
@@ -433,7 +433,7 @@ auto CabotiSocks::AddConnect(int app_fd, int up_fd) -> int
   auto UpdateMapAtomic = [&](int fd, const void *key, const void *value, __u64 flags) {
     ret = bpf_map_update_elem(fd, key, value, flags);
     if (ret) {
-      std::cerr << "Failed to update map, ret:" << ret << std::endl;
+      fmt::println(stderr, "Failed to update map, ret: {}", ret);
     }
     bool need_delete = ret == 0;
     return make_scope_exit([fd, key, need_delete]() {
@@ -485,7 +485,7 @@ auto CabotiSocks::DelConnect(int app_fd, int up_fd) -> int
 
   auto iter = conn_.find(app_fd);
   if (iter == conn_.end()) {
-    std::cerr << "Failed to find connect table item\n";
+    fmt::println(stderr, "Failed to find connect table item");
     return -1;
   }
 

@@ -6,13 +6,13 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <iostream>
 #include <list>
 #include <map>
 #include <netinet/in.h>
 #include <optional>
 #include <system_error>
 #include "asio.hpp"
+#include "fmt/core.h"
 #include "udp_relay.hpp"
 #include "socks.hpp"
 
@@ -355,7 +355,7 @@ auto udp_listener(CabotiSocks &ctx,
     auto [err2, len2] = co_await udp_socket.async_send(asio::buffer(buf.data(), header_len + len),
                                                        asio::as_tuple(asio::use_awaitable));
     if (err2) {
-      std::cerr << "udp send failed " << err2.message() << std::endl;
+      fmt::println(stderr, "UDP send failed {}", err2.message());
     }
   }
 }

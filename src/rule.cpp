@@ -2,10 +2,10 @@
 /*
  * Copyright (c) 2026 windowsair <dev@airkyi.com>
  */
-#include <iostream>
 #include <string>
 #include <string_view>
 #include "asio.hpp"
+#include "fmt/core.h"
 #include "rule.hpp"
 
 namespace caboti {
@@ -34,7 +34,7 @@ auto StringToLpmKey(const std::string &str) -> struct ipv4_lpm_key {
     }
 
     if (result < 0 || result > 32) {
-      std::cerr << "Invalid CIDR prefix length:" << str << std::endl;
+      fmt::println(stderr, "Invalid CIDR prefix length: {}", str);
       return ret;
     }
 
@@ -43,13 +43,13 @@ auto StringToLpmKey(const std::string &str) -> struct ipv4_lpm_key {
 
   auto addr = asio::ip::make_address(ip_str, ec);
   if (ec) {
-    std::cerr << "Invalid IP address:" << str << std::endl;
+    fmt::println(stderr, "Invalid IP address: {}", str);
     ret.prefix_len = UINT32_MAX;
     return ret;
   }
   if (addr.is_v6()) {
     // TODO: IPv6
-    std::cerr << "IPv6 not support:" << str << std::endl;
+    fmt::println(stderr, "IPv6 not support: {}", str);
     ret.prefix_len = UINT32_MAX;
     return ret;
   }

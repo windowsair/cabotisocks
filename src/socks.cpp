@@ -3,7 +3,7 @@
  * Copyright (c) 2026 windowsair <dev@airkyi.com>
  */
 #include <cstdint>
-#include <iostream>
+#include "fmt/core.h"
 #include "socks.hpp"
 
 namespace caboti {
@@ -80,13 +80,13 @@ auto SocksServerConnect(asio::any_io_executor ex,
     uint8_t header[4];
     co_await asio::async_read(sock, asio::buffer(header), asio::use_awaitable);
     if (header[0] != to_underlying(SocksVersion::SOCKS5)) {
-      std::cerr << "invalid socks version in reply\n";
+      fmt::println(stderr, "Invalid socks version in reply");
       sock.close(ec);
       co_return std::nullopt;
     }
 
     if (header[1] != to_underlying(SocksReply::SUCCEEDED)) {
-      std::cerr << "SOCKS5 connect failed: " << static_cast<int>(header[1]) << "\n";
+      fmt::println(stderr, "SOCKS5 connect failed: {}", static_cast<int>(header[1]));
       sock.close(ec);
       co_return std::nullopt;
     }
@@ -103,13 +103,13 @@ auto SocksServerConnect(asio::any_io_executor ex,
         co_await asio::async_read(sock, asio::buffer(&addr_len, 1), asio::use_awaitable);
         break;
       default:
-        std::cerr << "unknown socks addr type\n";
+        fmt::println(stderr, "Unknown socks addr type");
         sock.close(ec);
         co_return std::nullopt;
     }
 
     if (addr_len > 253) {
-      std::cerr << "domain address length too long: " << static_cast<int>(addr_len) << "\n";
+      fmt::println(stderr, "Domain address length too long: {}", static_cast<int>(addr_len));
       sock.close(ec);
       co_return std::nullopt;
     }
@@ -118,7 +118,7 @@ auto SocksServerConnect(asio::any_io_executor ex,
     co_await asio::async_read(sock, asio::buffer(discard), asio::use_awaitable);
   }
 
-  std::cout << "SOCKS5 connection established to " << target_host << ":" << target_port << "\n";
+  fmt::println("Connection established to {}:{}", target_host, target_port);
   co_return std::move(sock);
 }
 
@@ -191,13 +191,13 @@ auto SocksServerAssociate(asio::any_io_executor ex,
     uint8_t header[4];
     co_await asio::async_read(sock, asio::buffer(header), asio::use_awaitable);
     if (header[0] != to_underlying(SocksVersion::SOCKS5)) {
-      std::cerr << "invalid socks version in reply\n";
+      fmt::println(stderr, "Invalid socks version in reply");
       sock.close(ec);
       co_return std::nullopt;
     }
 
     if (header[1] != to_underlying(SocksReply::SUCCEEDED)) {
-      std::cerr << "SOCKS5 associate failed: " << static_cast<int>(header[1]) << "\n";
+      fmt::println(stderr, "SOCKS5 associate failed: {}", static_cast<int>(header[1]));
       sock.close(ec);
       co_return std::nullopt;
     }
@@ -214,13 +214,13 @@ auto SocksServerAssociate(asio::any_io_executor ex,
         co_await asio::async_read(sock, asio::buffer(&addr_len, 1), asio::use_awaitable);
         break;
       default:
-        std::cerr << "unknown socks addr type\n";
+        fmt::println(stderr, "Unknown socks addr type");
         sock.close(ec);
         co_return std::nullopt;
     }
 
     if (addr_len > 253) {
-      std::cerr << "domain address length too long: " << static_cast<int>(addr_len) << "\n";
+      fmt::println(stderr, "Domain address length too long: {}", static_cast<int>(addr_len));
       sock.close(ec);
       co_return std::nullopt;
     }
@@ -246,7 +246,7 @@ auto SocksServerAssociate(asio::any_io_executor ex,
       }
       case to_underlying(SocksAddrType::DOMAINNAME):
       default:
-        std::cerr << "socks assoociate type not support\n";
+        fmt::println(stderr, "SOCKS associate type not support");
         sock.close(ec);
         co_return std::nullopt;
     }

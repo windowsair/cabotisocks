@@ -3,12 +3,12 @@
  * Copyright (c) 2026 windowsair <dev@airkyi.com>
  */
 #include <cstdint>
-#include <iostream>
 #include <optional>
 #include "asio.hpp"
 #include "asio/as_tuple.hpp"
 #include "asio/awaitable.hpp"
 #include "asio/experimental/awaitable_operators.hpp"
+#include "fmt/core.h"
 #include "cabotisocks.hpp"
 #include "socks.hpp"
 #include "tcp_relay.hpp"
@@ -76,23 +76,21 @@ auto tcp_session(CabotiSocks &ctx,
   auto connect_res =
       co_await SocksServerConnect(ex, socks_host, socks_port, target_addr, target_port);
   if (!connect_res.has_value()) {
-    std::cerr << "socks5_connect failed\n";
+    fmt::println(stderr, "SOCKS5 connect failed");
     local.close();
     co_return;
   }
   auto remote = std::move(connect_res.value());
-  std::cout << "Tunnel established\n";
 
   // Try to use sockmap !
   int up_fd = remote.native_handle();
   ret = ctx.AddConnect(local.native_handle(), remote.native_handle());
   if (ret) {
-    std::cerr << "Failed to use sockmap " << local.native_handle() << std::endl;
+    fmt::println(stderr, "Failed to use sockmap {}", local.native_handle());
   }
 
   // If sockmap is unavailable, fall back to simple relay.
   co_await (relay(local, remote) && relay(remote, local));
-  std::cout << "Tunnel closed\n";
 
   // Must delete BPF map entries BEFORE closing sockets:
   // the kernel auto-removes closed sockets from sock_map.
@@ -119,7 +117,7 @@ auto tcp_listener(CabotiSocks &ctx,
     asio::ip::tcp::no_delay option(true);
     socket.set_option(option, ec);
     if (ec) {
-      std::cerr << "set_option failed: " << ec.message() << "\n";
+      fmt::println(stderr, "Failed to set_option:{}", ec.message());
     }
 
     asio::co_spawn(executor,
