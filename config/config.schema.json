@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "type": "object",
+  "required": [
+    "version",
+    "server",
+    "cgroup",
+    "rules"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "enum": [
+        "1"
+      ]
+    },
+    "server": {
+      "type": "object",
+      "required": [
+        "type",
+        "host",
+        "port"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "socks5"
+          ]
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "username": {
+          "type": "string"
+        },
+        "password": {
+          "type": "string"
+        }
+      }
+    },
+    "misc": {
+      "type": "object",
+      "properties": {
+        "enable_udp": {
+          "type": "boolean"
+        }
+      }
+    },
+    "cgroup": {
+      "type": "object",
+      "required": [
+        "include_path"
+      ],
+      "properties": {
+        "include_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exclude_path": {
+          "type": "string"
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "port": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "process": {
+            "type": "string"
+          },
+          "host": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4096,
+            "items": {
+              "type": "string"
+            }
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "proxy",
+              "block"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -172,11 +172,14 @@ auto CabotiSocks::CabotiBpfImpl::Init(const CabotiSocksConfig &cfg) -> int
 
   // bypass cabotisocks self
   ctx->bss->caboti_tgid = getpid();
-  cgroup exclude_handle{cfg.GetExcludeCgPath().c_str()};
-  if (exclude_handle.fd < 0) {
-    perror("Failed to get exclude id\n");
-  } else {
-    ctx->bss->caboti_exclude_cgroup_id = exclude_handle.inode;
+  const auto &exclude_cg_path = cfg.GetExcludeCgPath();
+  if (!exclude_cg_path.empty()) {
+    cgroup exclude_handle{cfg.GetExcludeCgPath().c_str()};
+    if (exclude_handle.fd < 0) {
+      perror("Failed to get exclude id\n");
+    } else {
+      ctx->bss->caboti_exclude_cgroup_id = exclude_handle.inode;
+    }
   }
 
   // load all maps fd.

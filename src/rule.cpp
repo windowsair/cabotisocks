@@ -9,6 +9,11 @@
 #include "asio/error_code.hpp"
 #include "asio/ip/address.hpp"
 #include "fmt/core.h"
+#include "rapidjson/document.h"
+#include "rapidjson/error/en.h"
+#include "rapidjson/istreamwrapper.h"
+#include "rapidjson/schema.h"
+#include "rapidjson/stringbuffer.h"
 #include "bpf/caboti.bpf.h"
 #include "rule.hpp"
 
@@ -69,45 +74,27 @@ auto StringToLpmKey(const std::string &str) -> struct ipv4_lpm_key {
 
 }
 
-constexpr auto exclude_cg_path = "/sys/fs/cgroup/system.slice/myapp.service";
-constexpr auto cg_path = "/sys/fs/cgroup/cabotisocks";
-//constexpr auto cg_path = "/sys/fs/cgroup/cabotisocks";
-//constexpr auto cg_path = "/sys/fs/cgroup/system.slice";
+#if defined(HAS_EMBED_SUPPORT)
+#if __has_embed("../config/config.schema.json" suffix(, 0) if_empty(0)) == __STDC_EMBED_FOUND__
+static constexpr char kSchemaJson[] = {
+#embed "../config/config.schema.json" suffix(, 0) if_empty(0)
+};
+#else
+#error "Failed to embed confg.schema.json!"
+#endif
+#else // !defined(HAS_EMBED_SUPPORT)
+#include "kSchemaJson.hpp"
+#endif
 
-// TODO: implement
-auto CabotiSocksConfig::Init() -> int
+auto CabotiSocksConfig::Init(const std::string &path) -> int
 {
-  enable_udp_ = true;
-  include_cg_path_ = cg_path;
-  exclude_cg_path_ = exclude_cg_path;
-  UpdateRules();
-  return 0;
+  return ParseConfig(path);
 }
 
-// TODO: implement
-auto CabotiSocksConfig::UpdateRules() -> void
+auto CabotiSocksConfig::UpdateRules(CabotiSocksRule &rule,
+                                    const std::vector<std::string> &host_list) -> void
 {
-  CabotiSocksRule rule;
-  CabotiSocksRule default_rule;
-
-  std::vector<std::string> ip_list = {
-      "0.0.0.0/8",
-      "10.0.0.0/8",
-      "100.64.0.0/10",
-      "127.0.0.0/8",
-      "169.254.0.0/16",
-      "172.16.0.0/12",
-      "192.0.0.0/24",
-      "192.0.2.0/24",
-      "192.88.99.0/24",
-      "192.168.0.0/16",
-      "198.18.0.0/15",
-      "198.51.100.0/24",
-      "203.0.113.0/24",
-      "224.0.0.0/3",
-  };
-
-  for (auto &str : ip_list) {
+  for (auto &str : host_list) {
     auto lpm_key = StringToLpmKey(str);
     if (lpm_key.prefix_len == UINT32_MAX) {
       continue;
@@ -115,13 +102,133 @@ auto CabotiSocksConfig::UpdateRules() -> void
     rule.ip.emplace_back(std::move(lpm_key));
   }
 
-  rule.port = htons(0);
-  default_rule.port = htons(0);
-  rule.action = OutBoundTag::DIRECT;
-  default_rule.action = OutBoundTag::PROXY;
-
+  rule.port = htons(rule.port);
   rules_.emplace_back(std::move(rule));
-  rules_.emplace_back(std::move(default_rule));
+}
+
+auto ValidateConfig(const rapidjson::Document &doc) -> int
+{
+  rapidjson::Document schema_doc;
+  if (schema_doc.Parse(kSchemaJson).HasParseError()) {
+    fmt::println(stderr,
+                 "Internal error: failed to parse schema (offset {}): {}",
+                 static_cast<unsigned>(schema_doc.GetErrorOffset()),
+                 rapidjson::GetParseError_En(schema_doc.GetParseError()));
+    return -1;
+  }
+
+  rapidjson::SchemaDocument schema(schema_doc);
+  rapidjson::SchemaValidator validator(schema);
+
+  if (!doc.Accept(validator)) {
+    rapidjson::StringBuffer sb;
+    validator.GetInvalidSchemaPointer().StringifyUriFragment(sb);
+    fmt::println(stderr, "Config validation failed at '{}'", sb.GetString());
+
+    sb.Clear();
+    validator.GetInvalidDocumentPointer().StringifyUriFragment(sb);
+    fmt::println(stderr, "  Invalid keyword: '{}'", validator.GetInvalidSchemaKeyword());
+    fmt::println(stderr, "  Document path : '{}'", sb.GetString());
+    return -1;
+  }
+
+  return 0;
+}
+
+auto CabotiSocksConfig::ParseConfig(const std::string &path) -> int
+{
+  std::ifstream ifs(path);
+  if (!ifs.is_open()) {
+    fmt::println(stderr, "Failed to open config file: {}", path);
+    return -1;
+  }
+
+  rapidjson::IStreamWrapper isw(ifs);
+  rapidjson::Document doc;
+  if (doc.ParseStream(isw).HasParseError()) {
+    fmt::println(stderr,
+                 "JSON parse error (offset {}): {}",
+                 static_cast<unsigned>(doc.GetErrorOffset()),
+                 rapidjson::GetParseError_En(doc.GetParseError()));
+    return -1;
+  }
+
+  if (ValidateConfig(doc)) {
+    return -1;
+  }
+
+  const auto &srv = doc["server"];
+  server_.host = srv["host"].GetString();
+  server_.port = srv["port"].GetUint();
+
+  if (srv.HasMember("username")) {
+    server_.username = srv["username"].GetString();
+  }
+  if (srv.HasMember("password")) {
+    server_.password = srv["password"].GetString();
+  }
+
+  /*
+   * cgroup v2 path.
+   * For example:
+   * - /sys/fs/cgroup/system.slice/myapp.service
+   * - /sys/fs/cgroup/cabotisocks
+   */
+  const auto &cg = doc["cgroup"];
+  auto prefix = "/sys/fs/cgroup/";
+  include_cg_path_ = cg["include_path"].GetString();
+  include_cg_path_ = prefix + include_cg_path_;
+  if (cg.HasMember("exclude_path")) {
+    exclude_cg_path_ = cg["exclude_path"].GetString();
+    exclude_cg_path_ = prefix + exclude_cg_path_;
+  }
+
+  // misc
+  const auto &misc = doc["misc"];
+  if (misc.HasMember("enable_udp")) {
+    enable_udp_ = misc["enable_udp"].GetBool();
+  } else {
+    enable_udp_ = false;
+  }
+
+  // rule
+  const auto &rules = doc["rules"];
+  std::vector<std::string> host_str;
+  host_str.reserve(1024);
+  for (auto &item : rules.GetArray()) {
+    CabotiSocksRule rule;
+    host_str.clear();
+
+    std::string action = item["action"].GetString();
+    if (action == "direct") {
+      rule.action = OutBoundTag::DIRECT;
+    } else if (action == "block") {
+      rule.action = OutBoundTag::BLOCK;
+    } else {
+      rule.action = OutBoundTag::PROXY;
+    }
+
+    if (item.HasMember("process")) {
+      rule.comm = item["process"].GetString();
+    }
+
+    if (item.HasMember("port")) {
+      rule.port = item["port"].GetUint();
+    } else {
+      rule.port = 0;
+    }
+
+    if (item.HasMember("host")) {
+      const auto &host_list = item["host"];
+      for (auto &host : host_list.GetArray()) {
+        host_str.emplace_back(host.GetString());
+      }
+    }
+
+    UpdateRules(rule, host_str);
+  }
+
+  return 0;
 }
 
 } // namespace caboti

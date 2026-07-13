@@ -52,15 +52,22 @@ public:
     return exclude_cg_path_;
   }
 
-  auto Init() -> int;
+  auto GetServer() const -> const SocksServerConfig &
+  {
+    return server_;
+  }
+
+  auto Init(const std::string &path) -> int;
 
 private:
-  auto UpdateRules() -> void;
+  auto ParseConfig(const std::string &path) -> int;
+  auto UpdateRules(CabotiSocksRule &rule, const std::vector<std::string> &host_list) -> void;
 
 private:
   std::string include_cg_path_;
   std::string exclude_cg_path_;
   std::vector<CabotiSocksRule> rules_;
+  SocksServerConfig server_;
   bool enable_udp_;
 };
 } // namespace caboti
