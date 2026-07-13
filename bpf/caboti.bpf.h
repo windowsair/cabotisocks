@@ -44,7 +44,7 @@ struct cabotisocks_rules {
 	__u32 index; /* ip address map */
 	char comm[16];
 	__u16 port; /* network order */
-	__u8 op;
+	__u8 action;
 	__u8 pad;
 };
 

@@ -107,8 +107,8 @@ auto CabotiSocksConfig::UpdateRules() -> void
 
   rule.port = htons(0);
   default_rule.port = htons(0);
-  rule.op = OutBoundTag::DIRECT;
-  default_rule.op = OutBoundTag::PROXY;
+  rule.action = OutBoundTag::DIRECT;
+  default_rule.action = OutBoundTag::PROXY;
 
   rules_.emplace_back(std::move(rule));
   rules_.emplace_back(std::move(default_rule));

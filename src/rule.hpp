@@ -21,7 +21,7 @@ struct CabotiSocksRule {
   std::string comm;
   std::vector<struct ipv4_lpm_key> ip;
   std::uint16_t port;
-  OutBoundTag op;
+  OutBoundTag action;
 
   CabotiSocksRule() = default;
 };

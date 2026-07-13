@@ -129,7 +129,7 @@ static long rule_check_cb(struct bpf_map *map, const void *key,
 			return 0;
 	}
 
-	cb->result = rule->op;
+	cb->result = rule->action;
 	return 1;
 }
 
@@ -193,10 +193,10 @@ int sendmsg4_redirect(struct bpf_sock_addr *ctx)
 	if (cid == caboti_exclude_cgroup_id)
 		return SK_PASS;
 
-	int op = rule_check(ctx);
-	if (op == CABOTISOCKS_DIRECT)
+	int action = rule_check(ctx);
+	if (action == CABOTISOCKS_DIRECT)
 		return SK_PASS;
-	else if (op == CABOTISOCKS_BLOCK)
+	else if (action == CABOTISOCKS_BLOCK)
 		return SK_DROP;
 
 	struct bpf_sock *sk = ctx->sk;
@@ -289,10 +289,10 @@ int connect4_redirect(struct bpf_sock_addr *ctx)
 	if (cid == caboti_exclude_cgroup_id)
 		return SK_PASS;
 
-	int op = rule_check(ctx);
-	if (op == CABOTISOCKS_DIRECT)
+	int action = rule_check(ctx);
+	if (action == CABOTISOCKS_DIRECT)
 		return SK_PASS;
-	else if (op == CABOTISOCKS_BLOCK)
+	else if (action == CABOTISOCKS_BLOCK)
 		return SK_DROP;
 
 	/* Then start to proxy */

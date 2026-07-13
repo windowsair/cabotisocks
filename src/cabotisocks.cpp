@@ -238,7 +238,7 @@ auto CabotiSocks::CabotiBpfImpl::Init(const CabotiSocksConfig &cfg) -> int
         .index = ip_index,
         .comm = "",
         .port = rule.port,
-        .op = static_cast<uint8_t>(rule.op),
+        .action = static_cast<uint8_t>(rule.action),
         .pad = 0,
     };
 
