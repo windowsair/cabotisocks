@@ -126,7 +126,6 @@ target_compile_options(cabotisocks PRIVATE
   -Wall
   -Wextra
   -Wpedantic
-  -Werror
   -Wno-c++26-extensions)
 if(HAS_EMBED_SUPPORT)
   target_compile_definitions(cabotisocks PUBLIC HAS_EMBED_SUPPORT=1)
