@@ -146,8 +146,10 @@ static int rule_check(struct bpf_sock_addr *ctx)
 
 SEC("fexit/__ip4_datagram_connect")
 int BPF_PROG(ipv4_datagram_connect, struct sock *sk,
-			 struct sockaddr_unsized *uaddr, int addr_len, int ret)
+	     void *uaddr, int addr_len, int ret)
 {
+	(void)uaddr;
+
 	if (sk->__sk_common.skc_family != AF_INET)
 		return 0;
 
