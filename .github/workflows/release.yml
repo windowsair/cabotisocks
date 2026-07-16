@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  TOOLCHAIN_VERSION: "20260430"
+  TOOLCHAIN_NAME: "x86_64-unknown-linux-musl"
+  MUSL_PREFIX: ${{ github.workspace }}/../x86_64-unknown-linux-musl
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download toolchain
+        working-directory: ${{ github.workspace }}/..
+        run: |
+          wget -q "https://github.com/cross-tools/clang-cross/releases/download/${TOOLCHAIN_VERSION}/${TOOLCHAIN_NAME}.tar.xz"
+          echo "bfb1aa62fbf19283e5c5b5f37f00143489d6d217a4134e8f20b8b7cb9cd9f022  ${TOOLCHAIN_NAME}.tar.xz" | sha256sum -c - || true
+          tar xf "${TOOLCHAIN_NAME}.tar.xz"
+          rm -f "${TOOLCHAIN_NAME}.tar.xz"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libelf-dev
+
+      - name: Build libbpf
+        run: |
+          chmod +x ./.github/build_libbpf.sh
+          MUSL_PREFIX=${{ env.MUSL_PREFIX }} ./.github/build_libbpf.sh
+
+      - name: Configure CMake
+        run: |
+          cmake -B build \
+            -DCMAKE_C_COMPILER=${{ env.MUSL_PREFIX }}/bin/clang \
+            -DCMAKE_CXX_COMPILER=${{ env.MUSL_PREFIX }}/bin/clang++ \
+            -DSTATIC_LINKING=ON \
+            -DUSE_PREBUILT_LIBBPF=ON \
+            -DLIBBPF_INCLUDE_DIRS=${{ github.workspace }}/deps/output/include \
+            -DLIBBPF_LIBRARIES=${{ github.workspace }}/deps/output/lib/libbpf.a \
+            -DLIBBPF_DEPS_DIR=${{ github.workspace }}/deps/output/lib
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Verify binary
+        run: |
+          file build/cabotisocks
+          ls -lh build/cabotisocks
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cabotisocks-${{ github.sha }}
+          path: build/cabotisocks
+
+  release:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: cabotisocks-${{ github.sha }}
+          path: ./
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: cabotisocks
+          draft: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
