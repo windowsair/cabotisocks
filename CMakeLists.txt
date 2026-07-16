@@ -4,10 +4,13 @@ project(caboti_project)
 
 # generate compile_commands.json for clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-set(CMAKE_C_COMPILER clang)
-#set(CMAKE_CXX_COMPILER clang++)
 set(CMAKE_CXX_STANDARD 20)
+
+option(STATIC_LINKING "Link statically" OFF)
+option(USE_PREBUILT_LIBBPF "Use prebuilt libbpf instead of building from source" OFF)
+set(LIBBPF_INCLUDE_DIRS "" CACHE PATH "Path to libbpf include directory")
+set(LIBBPF_LIBRARIES "" CACHE FILEPATH "Path to libbpf.a")
+set(LIBBPF_DEPS_DIR "" CACHE PATH "Path to zlib/zstd dependency directory")
 
 include(CheckCXXSourceCompiles)
 
@@ -57,13 +60,41 @@ CPMAddPackage(
   GIT_TAG 24b5e7a8b27f42fa16b96fc70aade9106cf7102f
   DOWNLOAD_ONLY YES
 )
-# libbpf support
-CPMAddPackage(
-  NAME libbpf
-  GITHUB_REPOSITORY libbpf/libbpf
-  GIT_TAG v1.7.0
-  DOWNLOAD_ONLY YES
-)
+
+if(USE_PREBUILT_LIBBPF)
+  if(NOT LIBBPF_INCLUDE_DIRS OR NOT LIBBPF_LIBRARIES)
+    message(FATAL_ERROR "USE_PREBUILT_LIBBPF=ON requires LIBBPF_INCLUDE_DIRS and LIBBPF_LIBRARIES to be set")
+  endif()
+  message(STATUS "Using prebuilt libbpf: ${LIBBPF_LIBRARIES}")
+else()
+  CPMAddPackage(
+    NAME libbpf
+    GITHUB_REPOSITORY libbpf/libbpf
+    GIT_TAG v1.7.0
+    DOWNLOAD_ONLY YES
+  )
+  ExternalProject_Add(libbpf
+    PREFIX libbpf
+    SOURCE_DIR ${libbpf_SOURCE_DIR}/src
+    CONFIGURE_COMMAND ""
+    BUILD_COMMAND make
+      CC=${CMAKE_C_COMPILER}
+      BUILD_STATIC_ONLY=1
+      OBJDIR=${CMAKE_CURRENT_BINARY_DIR}/libbpf/libbpf
+      DESTDIR=${CMAKE_CURRENT_BINARY_DIR}/libbpf
+      INCLUDEDIR=
+      LIBDIR=
+      UAPIDIR=
+      install install_uapi_headers
+    BUILD_IN_SOURCE TRUE
+    INSTALL_COMMAND ""
+    STEP_TARGETS build
+    BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libbpf/libbpf.a
+  )
+  set(LIBBPF_INCLUDE_DIRS ${CMAKE_CURRENT_BINARY_DIR}/libbpf)
+  set(LIBBPF_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/libbpf/libbpf.a)
+endif()
+
 # bpftool support
 CPMAddPackage(
   NAME bpftool
@@ -71,26 +102,6 @@ CPMAddPackage(
   GIT_TAG v7.7.0
   DOWNLOAD_ONLY YES
 )
-
-ExternalProject_Add(libbpf
-  PREFIX libbpf
-  SOURCE_DIR ${libbpf_SOURCE_DIR}/src
-  CONFIGURE_COMMAND ""
-  BUILD_COMMAND make
-    CC=${CMAKE_C_COMPILER}
-    BUILD_STATIC_ONLY=1
-    OBJDIR=${CMAKE_CURRENT_BINARY_DIR}/libbpf/libbpf
-    DESTDIR=${CMAKE_CURRENT_BINARY_DIR}/libbpf
-    INCLUDEDIR=
-    LIBDIR=
-    UAPIDIR=
-    install install_uapi_headers
-  BUILD_IN_SOURCE TRUE
-  INSTALL_COMMAND ""
-  STEP_TARGETS build
-  BUILD_BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/libbpf/libbpf.a
-)
-
 ExternalProject_Add(bpftool
   PREFIX bpftool
   SOURCE_DIR ${bpftool_SOURCE_DIR}/src
@@ -104,8 +115,6 @@ ExternalProject_Add(bpftool
 
 # build libbpf
 set(BPFOBJECT_BPFTOOL_EXE ${CMAKE_CURRENT_BINARY_DIR}/bpftool/bootstrap/bpftool)
-set(LIBBPF_INCLUDE_DIRS ${CMAKE_CURRENT_BINARY_DIR}/libbpf)
-set(LIBBPF_LIBRARIES ${CMAKE_CURRENT_BINARY_DIR}/libbpf/libbpf.a)
 find_package(BpfObject REQUIRED)
 
 bpf_object(caboti bpf/caboti.bpf.c)
@@ -131,3 +140,6 @@ if(HAS_EMBED_SUPPORT)
   target_compile_definitions(cabotisocks PUBLIC HAS_EMBED_SUPPORT=1)
 endif()
 target_link_libraries(cabotisocks caboti_skel asio::asio nonstd::scope-lite fmt::fmt)
+if(STATIC_LINKING)
+  target_link_options(cabotisocks PRIVATE -static -Wl) #--allow-multiple-definition
+endif()

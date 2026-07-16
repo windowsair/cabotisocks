@@ -45,7 +45,7 @@ as the associated dependencies.
 
 Given an abstract ``<name>`` for a BPF object and the associated ``<source>``
 file, generates an interface library target, ``<name>_skel``, that may be
-linked against by other cmake targets. Additional headers may be provided to 
+linked against by other cmake targets. Additional headers may be provided to
 the macro to ensure that the generated skeleton is up-to-date.
 
 Example Usage:
@@ -185,5 +185,8 @@ macro(bpf_object name input)
   target_sources(${OUTPUT_TARGET} INTERFACE ${BPF_SKEL_FILE})
   target_include_directories(${OUTPUT_TARGET} INTERFACE ${CMAKE_CURRENT_BINARY_DIR})
   target_include_directories(${OUTPUT_TARGET} SYSTEM INTERFACE ${LIBBPF_INCLUDE_DIRS})
-  target_link_libraries(${OUTPUT_TARGET} INTERFACE ${LIBBPF_LIBRARIES} -lelf -lz)
+  if(LIBBPF_DEPS_DIR)
+    target_link_directories(${OUTPUT_TARGET} INTERFACE ${LIBBPF_DEPS_DIR}/lib)
+  endif()
+  target_link_libraries(${OUTPUT_TARGET} INTERFACE ${LIBBPF_LIBRARIES} -lelf -lz -lzstd)
 endmacro()
