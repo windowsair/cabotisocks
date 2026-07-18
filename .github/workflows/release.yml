@@ -7,23 +7,47 @@ on:
 
 env:
   TOOLCHAIN_VERSION: "20260430"
-  TOOLCHAIN_NAME: "x86_64-unknown-linux-musl"
-  MUSL_PREFIX: ${{ github.workspace }}/../x86_64-unknown-linux-musl
 
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            toolchain: x86_64-unknown-linux-musl
+          - arch: aarch64
+            toolchain: aarch64-unknown-linux-musl
+          - arch: arm
+            toolchain: arm-unknown-linux-musleabi
+          - arch: riscv64
+            toolchain: riscv64-unknown-linux-musl
+          - arch: loongarch64
+            toolchain: loongarch64-unknown-linux-musl
+          - arch: powerpc
+            toolchain: powerpc-unknown-linux-musl
+          - arch: s390x
+            toolchain: s390x-ibm-linux-musl
     runs-on: ubuntu-24.04
+    env:
+      TOOLCHAIN_NAME: ${{ matrix.toolchain }}
+      MUSL_PREFIX: ${{ github.workspace }}/../${{ matrix.toolchain }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download toolchain
         working-directory: ${{ github.workspace }}/..
         run: |
-          wget -q "https://github.com/cross-tools/clang-cross/releases/download/${TOOLCHAIN_VERSION}/${TOOLCHAIN_NAME}.tar.xz"
-          echo "bfb1aa62fbf19283e5c5b5f37f00143489d6d217a4134e8f20b8b7cb9cd9f022  ${TOOLCHAIN_NAME}.tar.xz" | sha256sum -c - || true
-          tar xf "${TOOLCHAIN_NAME}.tar.xz"
-          rm -f "${TOOLCHAIN_NAME}.tar.xz"
+          wget -q "https://github.com/cross-tools/clang-cross/releases/download/${{ env.TOOLCHAIN_VERSION }}/${{ env.TOOLCHAIN_NAME }}.tar.xz"
+          tar xf "${{ env.TOOLCHAIN_NAME }}.tar.xz"
+          rm -f "${{ env.TOOLCHAIN_NAME }}.tar.xz"
+
+      - name: Clone vmlinux.h
+        run: |
+          git clone https://github.com/libbpf/vmlinux.h.git vmlinux-headers
+          cd vmlinux-headers
+          git checkout 5c36ac2080a8d3c1216470ce97e6502ed50272e5
 
       - name: Install dependencies
         run: |
@@ -33,18 +57,21 @@ jobs:
       - name: Build libbpf
         run: |
           chmod +x ./.github/build_libbpf.sh
-          MUSL_PREFIX=${{ env.MUSL_PREFIX }} ./.github/build_libbpf.sh
+          MUSL_PREFIX=${{ env.MUSL_PREFIX }} TOOLCHAIN_NAME=${{ env.TOOLCHAIN_NAME }} ./.github/build_libbpf.sh
 
       - name: Configure CMake
         run: |
           cmake -B build \
-            -DCMAKE_C_COMPILER=${{ env.MUSL_PREFIX }}/bin/clang \
-            -DCMAKE_CXX_COMPILER=${{ env.MUSL_PREFIX }}/bin/clang++ \
+            -DCMAKE_C_COMPILER=${{ env.MUSL_PREFIX }}/bin/${{ env.TOOLCHAIN_NAME }}-clang \
+            -DCMAKE_CXX_COMPILER=${{ env.MUSL_PREFIX }}/bin/${{ env.TOOLCHAIN_NAME }}-clang++ \
             -DSTATIC_LINKING=ON \
             -DUSE_PREBUILT_LIBBPF=ON \
             -DLIBBPF_INCLUDE_DIRS=${{ github.workspace }}/deps/output/include \
             -DLIBBPF_LIBRARIES=${{ github.workspace }}/deps/output/lib/libbpf.a \
-            -DLIBBPF_DEPS_DIR=${{ github.workspace }}/deps/output/lib
+            -DLIBBPF_DEPS_DIR=${{ github.workspace }}/deps/output \
+            -DBPFOBJECT_VMLINUX_H=${{ github.workspace }}/vmlinux-headers/include/${{ matrix.arch }}/vmlinux.h \
+            -DARCH=${{ matrix.arch }} \
+            -DCMAKE_CXX_FLAGS="-I${{ github.workspace }}/deps/output/include"
 
       - name: Build
         run: cmake --build build
@@ -54,11 +81,18 @@ jobs:
           file build/cabotisocks
           ls -lh build/cabotisocks
 
+      - name: Package artifact
+        run: |
+          mkdir -p cabotisocks-linux-${{ matrix.arch }}
+          cp build/cabotisocks cabotisocks-linux-${{ matrix.arch }}/
+          cp config/config.example.json cabotisocks-linux-${{ matrix.arch }}/
+          tar -cJf cabotisocks-linux-${{ matrix.arch }}.tar.xz cabotisocks-linux-${{ matrix.arch }}
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cabotisocks-${{ github.sha }}
-          path: build/cabotisocks
+          name: cabotisocks-${{ matrix.arch }}
+          path: cabotisocks-linux-${{ matrix.arch }}.tar.xz
 
   release:
     needs: build
@@ -70,13 +104,21 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          name: cabotisocks-${{ github.sha }}
+          pattern: cabotisocks-*
+          merge-multiple: true
           path: ./
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: cabotisocks
+          files: |
+            cabotisocks-linux-x86_64.tar.xz
+            cabotisocks-linux-aarch64.tar.xz
+            cabotisocks-linux-arm.tar.xz
+            cabotisocks-linux-riscv64.tar.xz
+            cabotisocks-linux-loongarch64.tar.xz
+            cabotisocks-linux-powerpc.tar.xz
+            cabotisocks-linux-s390x.tar.xz
           draft: true
           generate_release_notes: true
         env:
