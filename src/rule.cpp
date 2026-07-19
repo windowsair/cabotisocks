@@ -163,9 +163,17 @@ auto CabotiSocksConfig::ParseConfig(const std::string &path) -> int
 
   if (srv.HasMember("username")) {
     server_.username = srv["username"].GetString();
+    if (server_.username.length() > 255) {
+      fmt::println(stderr, "SOCKS5 server username too long!");
+      return -1;
+    }
   }
   if (srv.HasMember("password")) {
     server_.password = srv["password"].GetString();
+    if (server_.password.length() > 255) {
+      fmt::println(stderr, "SOCKS5 server password too long!");
+      return -1;
+    }
   }
 
   /*

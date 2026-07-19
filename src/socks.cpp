@@ -15,6 +15,69 @@ using asio::ip::tcp;
 using tcp_acceptor = asio::use_awaitable_t<>::as_default_on_t<tcp::acceptor>;
 using tcp_socket = asio::use_awaitable_t<>::as_default_on_t<tcp::socket>;
 
+auto SocksAuthHandshake(tcp_socket &sock, const SocksServerConfig &cfg) -> asio::awaitable<int>
+{
+  asio::error_code ec;
+  const bool has_creds = !cfg.username.empty() || !cfg.password.empty();
+
+  std::vector<uint8_t> methods;
+  methods.reserve(128);
+  if (has_creds) {
+    methods = {to_underlying(SocksAuthMethod::NO_AUTH), to_underlying(SocksAuthMethod::PASSWORD)};
+  } else {
+    methods = {to_underlying(SocksAuthMethod::NO_AUTH)};
+  }
+
+  std::vector<uint8_t> req = {to_underlying(SocksVersion::SOCKS5),
+                              static_cast<uint8_t>(methods.size())};
+  req.insert(req.end(), methods.begin(), methods.end());
+  co_await asio::async_write(sock, asio::buffer(req), asio::use_awaitable);
+
+  uint8_t res[2];
+  co_await asio::async_read(sock, asio::buffer(res), asio::use_awaitable);
+  if (res[0] != to_underlying(SocksVersion::SOCKS5)) {
+    fmt::println(stderr, "SOCKS5: Invalid version");
+    sock.close(ec);
+    co_return -1;
+  }
+
+  auto server_method = static_cast<SocksAuthMethod>(res[1]);
+
+  if (server_method == SocksAuthMethod::NO_AUTH) {
+    co_return 0;
+  } else if (server_method == SocksAuthMethod::PASSWORD) {
+    if (!has_creds) {
+      fmt::println(stderr, "SOCKS5: need passowrd");
+      sock.close(ec);
+      co_return -1;
+    }
+
+    // RFC1929 auth
+    std::vector<uint8_t> auth_req = {0x01, // version
+                                     static_cast<uint8_t>(cfg.username.size())};
+    auth_req.insert(auth_req.end(), cfg.username.begin(), cfg.username.end());
+    auth_req.push_back(static_cast<uint8_t>(cfg.password.size()));
+    auth_req.insert(auth_req.end(), cfg.password.begin(), cfg.password.end());
+
+    co_await asio::async_write(sock, asio::buffer(auth_req), asio::use_awaitable);
+
+    uint8_t auth_res[2];
+    co_await asio::async_read(sock, asio::buffer(auth_res), asio::use_awaitable);
+
+    if (auth_res[0] != 0x01 || auth_res[1] != 0x00) {
+      fmt::println(stderr, "SOCKS5: Invalid username or password");
+      sock.close(ec);
+      co_return -1;
+    }
+
+    co_return 0;
+  }
+
+  fmt::println(stderr, "SOCKS5: failed to auth");
+  sock.close(ec);
+  co_return -1;
+}
+
 auto SocksServerConnect(asio::any_io_executor ex,
                         const SocksServerConfig &cfg,
                         const std::string &target_host,
@@ -39,18 +102,8 @@ auto SocksServerConnect(asio::any_io_executor ex,
     co_return std::nullopt;
   }
 
-  {
-    const uint8_t req[] = {to_underlying(SocksVersion::SOCKS5),
-                           0x01,
-                           to_underlying(SocksAuthMethod::NO_AUTH)};
-    uint8_t res[2];
-
-    co_await asio::async_write(sock, asio::buffer(req), asio::use_awaitable);
-    co_await asio::async_read(sock, asio::buffer(res), asio::use_awaitable);
-    if (res[0] != req[0] || res[1] != req[2]) {
-      sock.close(ec);
-      co_return std::nullopt;
-    }
+  if (co_await SocksAuthHandshake(sock, cfg)) {
+    co_return std::nullopt;
   }
   // connect
   {
@@ -151,18 +204,8 @@ auto SocksServerAssociate(asio::any_io_executor ex,
     co_return std::nullopt;
   }
 
-  {
-    const uint8_t req[] = {to_underlying(SocksVersion::SOCKS5),
-                           0x01, // nmethods
-                           to_underlying(SocksAuthMethod::NO_AUTH)};
-    uint8_t res[2];
-
-    co_await asio::async_write(sock, asio::buffer(req), asio::use_awaitable);
-    co_await asio::async_read(sock, asio::buffer(res), asio::use_awaitable);
-    if (res[0] != req[0] || res[1] != req[2]) {
-      sock.close(ec);
-      co_return std::nullopt;
-    }
+  if (co_await SocksAuthHandshake(sock, cfg)) {
+    co_return std::nullopt;
   }
   // associate
   {
