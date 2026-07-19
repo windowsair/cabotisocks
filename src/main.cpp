@@ -15,7 +15,7 @@
 #include "tcp_relay.hpp"
 #include "udp_relay.hpp"
 
-auto main() -> int
+auto main(int argc, char *argv[]) -> int
 {
   constexpr uint16_t listen_port = CABOTISOCKS_TCP_REDIR_PORT;
   constexpr uint16_t udp_listen_port = CABOTISOCKS_UDP_REDIR_PORT;
@@ -25,7 +25,8 @@ auto main() -> int
   caboti::CabotiSocks caboti_handle;
   caboti::CabotiSocksConfig cfg;
 
-  if (cfg.Init("config.json")) {
+  const char *config_path = argc > 1 ? argv[1] : "config.json";
+  if (cfg.Init(config_path)) {
     return -1;
   }
 

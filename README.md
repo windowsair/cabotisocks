@@ -24,7 +24,7 @@ See [benchmark](https://github.com/windowsair/cabotisocks-benchmark.git)
 3. Run as root (eBPF requires `CAP_BPF` and `CAP_NET_ADMIN`):
 
     ```bash
-    sudo ./cabotisocks
+    sudo ./cabotisocks ./config.json
     ```
 
 4. Run your target application inside a monitored cgroup:
@@ -43,8 +43,6 @@ See [benchmark](https://github.com/windowsair/cabotisocks-benchmark.git)
 > See the [Arch Linux cgroups wiki](https://wiki.archlinux.org/title/Cgroups) for more ways to launch processes within specific cgroups.
 
 ## Configuration
-
-cabotisocks looks for `config.json` in the working directory.
 
 **Quick Start**:
 
