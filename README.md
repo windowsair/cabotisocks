@@ -1,5 +1,7 @@
 # cabotisocks
 
+[![Build](https://github.com/windowsair/cabotisocks/actions/workflows/build.yml/badge.svg)](https://github.com/windowsair/cabotisocks/actions/workflows/build.yml)
+
 Yet another eBPF-based transparent proxy for Linux.
 
 ## Features
