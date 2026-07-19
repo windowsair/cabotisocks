@@ -17,6 +17,18 @@ See [benchmark](https://github.com/windowsair/cabotisocks-benchmark.git)
 ![upload](https://github.com/windowsair/cabotisocks-benchmark/raw/master/upload.png)
 ![download](https://github.com/windowsair/cabotisocks-benchmark/raw/master/download.png)
 
+## Requirements
+
+- Platform: Linux (kernel 5.8+)
+- Architecture
+  - x86_64
+  - aarch64
+  - arm (not tested)
+  - riscv64 (not tested)
+  - loongarch64 (not tested)
+  - powerpc (not tested)
+  - s390x (not tested)
+
 ## Getting Started
 
 1. Download from [releases page](https://github.com/windowsair/cabotisocks/releases)
