@@ -20,7 +20,7 @@ auto main() -> int
   constexpr uint16_t listen_port = CABOTISOCKS_TCP_REDIR_PORT;
   constexpr uint16_t udp_listen_port = CABOTISOCKS_UDP_REDIR_PORT;
 
-  fmt::println("Cabotisocks started");
+  fmt::println("Cabotisocks started, version: {}", CABOTISOCKS_VERSION_STRING);
 
   caboti::CabotiSocks caboti_handle;
   caboti::CabotiSocksConfig cfg;

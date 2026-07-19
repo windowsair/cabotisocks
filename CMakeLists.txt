@@ -12,6 +12,21 @@ set(LIBBPF_INCLUDE_DIRS "" CACHE PATH "Path to libbpf include directory")
 set(LIBBPF_LIBRARIES "" CACHE FILEPATH "Path to libbpf.a")
 set(LIBBPF_DEPS_DIR "" CACHE PATH "Path to zlib/zstd dependency directory")
 
+# generate git version info
+find_package(Git QUIET)
+if(GIT_FOUND)
+  execute_process(
+      COMMAND ${GIT_EXECUTABLE} describe --tags --always --dirty
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      OUTPUT_VARIABLE GIT_VERSION_STRING
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      ERROR_QUIET
+  )
+endif()
+if(NOT GIT_VERSION_STRING)
+  set(GIT_VERSION_STRING "unknown")
+endif()
+
 include(CheckCXXSourceCompiles)
 
 check_cxx_source_compiles([[
@@ -139,6 +154,7 @@ target_compile_options(cabotisocks PRIVATE
 if(HAS_EMBED_SUPPORT)
   target_compile_definitions(cabotisocks PUBLIC HAS_EMBED_SUPPORT=1)
 endif()
+target_compile_definitions(cabotisocks PRIVATE CABOTISOCKS_VERSION_STRING="${GIT_VERSION_STRING}")
 target_link_libraries(cabotisocks caboti_skel asio::asio nonstd::scope-lite fmt::fmt)
 if(STATIC_LINKING)
   target_link_options(cabotisocks PRIVATE -static -Wl) #--allow-multiple-definition
