@@ -12,6 +12,7 @@
 #include <optional>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 #include "bpf/bpf.h"
 #include "bpf/libbpf.h"
 #include "bpf/caboti.bpf.h"
@@ -116,10 +117,10 @@ struct CabotiSocks::CabotiBpfImpl {
   int parser_fd;
   int verdict_fd;
   struct bpf_link *ipv4_datagram_connect_link;
-  struct bpf_link *sendmsg4_link;
-  struct bpf_link *recvmsg4_link;
-  struct bpf_link *connect_v4_link;
-  struct bpf_link *socksop_link;
+  std::vector<struct bpf_link *> sendmsg4_links;
+  std::vector<struct bpf_link *> recvmsg4_links;
+  std::vector<struct bpf_link *> connect_v4_links;
+  std::vector<struct bpf_link *> socksop_links;
   std::vector<int> lpm_fd_list;
 
   CabotiBpfImpl()
@@ -133,10 +134,6 @@ struct CabotiSocks::CabotiBpfImpl {
       , parser_fd(-1)
       , verdict_fd(-1)
       , ipv4_datagram_connect_link(nullptr)
-      , sendmsg4_link(nullptr)
-      , recvmsg4_link(nullptr)
-      , connect_v4_link(nullptr)
-      , socksop_link(nullptr)
   {
   }
 
@@ -291,49 +288,64 @@ auto CabotiSocks::CabotiBpfImpl::Init(const CabotiSocksConfig &cfg) -> int
     }
   });
 
-  {
-    cgroup cg_handle{cfg.GetIncludeCgPath().c_str()};
+  auto &include_paths = cfg.GetIncludeCgPaths();
+  auto step_attach_group = make_scope_exit([&] {
+    for (auto link : connect_v4_links) {
+      bpf_link__destroy(link);
+    }
+    for (auto link : socksop_links) {
+      bpf_link__destroy(link);
+    }
+    connect_v4_links.clear();
+    socksop_links.clear();
+  });
+  auto step_attach_group_udp = make_scope_exit([&] {
+    if (cfg.IsUdpEnabled()) {
+      for (auto link : sendmsg4_links) {
+        bpf_link__destroy(link);
+      }
+      for (auto link : recvmsg4_links) {
+        bpf_link__destroy(link);
+      }
+      sendmsg4_links.clear();
+      recvmsg4_links.clear();
+    }
+  });
+  for (auto &path : include_paths) {
+    cgroup cg_handle{path.c_str()};
     if (cg_handle.fd < 0) {
       perror("BPF invalid cgroup path");
       return -1;
     }
 
     if (cfg.IsUdpEnabled()) {
-      sendmsg4_link = bpf_program__attach_cgroup(ctx->progs.sendmsg4_redirect, cg_handle.fd);
-      recvmsg4_link = bpf_program__attach_cgroup(ctx->progs.recvmsg4_redirect, cg_handle.fd);
+      auto sendmsg4_link = bpf_program__attach_cgroup(ctx->progs.sendmsg4_redirect, cg_handle.fd);
+      auto recvmsg4_link = bpf_program__attach_cgroup(ctx->progs.recvmsg4_redirect, cg_handle.fd);
       if (!sendmsg4_link || !recvmsg4_link) {
+        bpf_link__destroy(sendmsg4_link);
+        bpf_link__destroy(recvmsg4_link);
         perror("BPF failed to attach cgroup");
         return -1;
       }
+      sendmsg4_links.push_back(sendmsg4_link);
+      recvmsg4_links.push_back(recvmsg4_link);
     }
-    auto step_attach_group_udp = make_scope_exit([&] {
-      if (cfg.IsUdpEnabled()) {
-        bpf_link__destroy(sendmsg4_link);
-        bpf_link__destroy(recvmsg4_link);
-        sendmsg4_link = nullptr;
-        recvmsg4_link = nullptr;
-      }
-    });
 
-    connect_v4_link = bpf_program__attach_cgroup(ctx->progs.connect4_redirect, cg_handle.fd);
-    socksop_link = bpf_program__attach_cgroup(ctx->progs.sock_ops_handler, cg_handle.fd);
-    auto step_attach_group = make_scope_exit([&] {
+    auto connect_v4_link = bpf_program__attach_cgroup(ctx->progs.connect4_redirect, cg_handle.fd);
+    auto socksop_link = bpf_program__attach_cgroup(ctx->progs.sock_ops_handler, cg_handle.fd);
+    if (!connect_v4_link || !socksop_link) {
       bpf_link__destroy(connect_v4_link);
       bpf_link__destroy(socksop_link);
-      connect_v4_link = nullptr;
-      socksop_link = nullptr;
-    });
-    if (!connect_v4_link || !socksop_link) {
       perror("BPF failed to attach cgroup");
       return -1;
     }
-
-    // step success
-    step_attach_group_udp.release();
-    step_attach_group.release();
+    connect_v4_links.push_back(connect_v4_link);
+    socksop_links.push_back(socksop_link);
   }
 
   // all step success
+  step_attach_group_udp.release();
+  step_attach_group.release();
   step_ipv4_datagram_connect_link.release();
   step_veridct_attch.release();
   step_parser_attch.release();
@@ -345,20 +357,20 @@ auto CabotiSocks::CabotiBpfImpl::Init(const CabotiSocksConfig &cfg) -> int
 
 auto CabotiSocks::CabotiBpfImpl::Destroy() -> void
 {
-  if (socksop_link) {
-    bpf_link__destroy(socksop_link);
+  for (auto link : socksop_links) {
+    bpf_link__destroy(link);
   }
 
-  if (connect_v4_link) {
-    bpf_link__destroy(connect_v4_link);
+  for (auto link : connect_v4_links) {
+    bpf_link__destroy(link);
   }
 
-  if (recvmsg4_link) {
-    bpf_link__destroy(recvmsg4_link);
+  for (auto link : recvmsg4_links) {
+    bpf_link__destroy(link);
   }
 
-  if (sendmsg4_link) {
-    bpf_link__destroy(sendmsg4_link);
+  for (auto link : sendmsg4_links) {
+    bpf_link__destroy(link);
   }
 
   if (ipv4_datagram_connect_link) {

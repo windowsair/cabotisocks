@@ -42,9 +42,9 @@ public:
     return rules_;
   }
 
-  auto GetIncludeCgPath() const -> const std::string &
+  auto GetIncludeCgPaths() const -> const std::vector<std::string> &
   {
-    return include_cg_path_;
+    return include_cg_paths_;
   }
 
   auto GetExcludeCgPath() const -> const std::string &
@@ -64,7 +64,7 @@ private:
   auto UpdateRules(CabotiSocksRule &rule, const std::vector<std::string> &host_list) -> void;
 
 private:
-  std::string include_cg_path_;
+  std::vector<std::string> include_cg_paths_;
   std::string exclude_cg_path_;
   std::vector<CabotiSocksRule> rules_;
   SocksServerConfig server_;

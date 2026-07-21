@@ -183,9 +183,15 @@ auto CabotiSocksConfig::ParseConfig(const std::string &path) -> int
    * - /sys/fs/cgroup/cabotisocks
    */
   const auto &cg = doc["cgroup"];
-  auto prefix = "/sys/fs/cgroup/";
-  include_cg_path_ = cg["include_path"].GetString();
-  include_cg_path_ = prefix + include_cg_path_;
+  auto prefix = std::string{"/sys/fs/cgroup/"};
+  const auto &inc = cg["include_path"];
+  if (inc.IsArray()) {
+    for (auto &p : inc.GetArray()) {
+      include_cg_paths_.emplace_back(prefix + p.GetString());
+    }
+  } else {
+    include_cg_paths_.emplace_back(prefix + inc.GetString());
+  }
   if (cg.HasMember("exclude_path")) {
     exclude_cg_path_ = cg["exclude_path"].GetString();
     exclude_cg_path_ = prefix + exclude_cg_path_;
